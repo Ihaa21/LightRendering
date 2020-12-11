@@ -15,11 +15,11 @@ Theres a batch file in the code folder that can be run to build the program as w
 - Graphics_Utils
 - Framework_Vulkan
 
-Some of the shaders might be commented out with REM but you can uncomment those for a first build.
+Some of the shaders might be commented out with REM but you can uncomment those for a first build. You might have to change the sln paths so that the 
 
 # TODO
 
-- Make git ignore the contents of build_win32 except for the sln file
+- Make git ignore the contents of build_win32 except for the sln file (and make the paths in the sln relative)
 - Make git auto pull the library dependencies to a libs folder
 - Add tiled deferred rendering
 - Add transparent objects to all renderers
