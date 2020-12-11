@@ -4,18 +4,6 @@
 // TODO: Move to shader
 #define MAX_LIGHTS_PER_TILE 1024
 
-struct plane
-{
-    v3 Normal;
-    f32 Distance;
-};
-
-struct frustum
-{
-    // NOTE: Left, Right, Top, Bottom
-    plane Planes[4];
-};
-
 struct tiled_forward_globals
 {
     // TODO: Move to camera?

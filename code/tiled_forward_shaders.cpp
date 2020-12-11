@@ -10,28 +10,18 @@
 // NOTE: Math
 //
 
-// TODO: Renable array
-/*
 struct plane
 {
     vec3 Normal;
     float Distance;
 };
-//*/
 
 struct frustum
 {
     // NOTE: Left, Right, Top, Bottom
-    //plane Planes[4];
-    ///*
-    vec4 Left;
-    vec4 Right;
-    vec4 Top;
-    vec4 Bottom;
-    //*/
+    plane Planes[4];
 };
 
-/*
 plane PlaneCreate(vec3 P0, vec3 P1, vec3 P2)
 {
     plane Result;
@@ -69,48 +59,7 @@ bool SphereInsideFrustum(vec3 SphereCenter, float SphereRadius, frustum Frustum,
     
     return Result;
 }
-*/
 
-///*
-vec4 PlaneCreate(vec3 P0, vec3 P1, vec3 P2)
-{
-    vec4 Result;
-
-    vec3 V0 = P1 - P0;
-    vec3 V1 = P2 - P0;
-    Result.xyz = normalize(cross(V0, V1));
-    Result.w = dot(Result.xyz, P0);
-    
-    return Result;
-}
-
-bool SphereInsidePlane(vec3 SphereCenter, float SphereRadius, vec4 Plane)
-{
-    // NOTE: Check to see if a sphere is fully behind (inside the negative halfspace of) a plane.
-    bool Result = dot(Plane.xyz, SphereCenter) - Plane.w < -SphereRadius;
-    return Result;
-}
-
-bool SphereInsideFrustum(vec3 SphereCenter, float SphereRadius, frustum Frustum, float NearZ, float FarZ)
-{
-    bool Result = true;
-
-    if (SphereCenter.z + SphereRadius < NearZ || SphereCenter.z - SphereRadius > FarZ)
-    {
-        Result = false;
-    }
-
-    if (SphereInsidePlane(SphereCenter, SphereRadius, Frustum.Left) ||
-        SphereInsidePlane(SphereCenter, SphereRadius, Frustum.Right) ||
-        SphereInsidePlane(SphereCenter, SphereRadius, Frustum.Top) ||
-        SphereInsidePlane(SphereCenter, SphereRadius, Frustum.Bottom))
-    {
-        Result = false;
-    }
-    
-    return Result;
-}
-//*/
 
 vec4 ClipToView(mat4 InverseProjection, vec4 ClipPos)
 {
@@ -199,17 +148,10 @@ void main()
    
         // NOTE: Build the frustum planes and store
         frustum Frustum;
-        /*
         Frustum.Planes[0] = PlaneCreate(CameraPos, BotLeft.xyz, TopLeft.xyz);
         Frustum.Planes[1] = PlaneCreate(CameraPos, TopRight.xyz, BotRight.xyz);
         Frustum.Planes[2] = PlaneCreate(CameraPos, TopLeft.xyz, TopRight.xyz);
         Frustum.Planes[3] = PlaneCreate(CameraPos, BotRight.xyz, BotLeft.xyz);
-        //*/
-
-        Frustum.Left = PlaneCreate(CameraPos, BotLeft.xyz, TopLeft.xyz);
-        Frustum.Right = PlaneCreate(CameraPos, TopRight.xyz, BotRight.xyz);
-        Frustum.Top = PlaneCreate(CameraPos, TopLeft.xyz, TopRight.xyz);
-        Frustum.Bottom = PlaneCreate(CameraPos, BotRight.xyz, BotLeft.xyz);
         
         // NOTE: Write out to buffer
         uint WriteIndex = GridPos.y * GridSize.x + GridPos.x;
@@ -298,8 +240,7 @@ void main()
     MaxDepth = ClipToView(InverseProjection, vec4(0, 0, MaxDepth, 1)).z;
 
     float NearClipDepth = ClipToView(InverseProjection, vec4(0, 0, 0, 1)).z;
-    //plane MinPlane = { vec3(0, 0, 1), MaxDepth };
-    vec4 MinPlane = vec4(0, 0, 1, MinDepth);
+    plane MinPlane = { vec3(0, 0, 1), MinDepth };
     
     // NOTE: Cull lights against tiles frustum (each thread culls one light at a time)
     for (uint LightId = gl_LocalInvocationIndex; LightId < SceneBuffer.NumPointLights; LightId += NumThreadsPerGroup)

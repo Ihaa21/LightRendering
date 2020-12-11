@@ -27,9 +27,9 @@
  */
 
 //#define FORWARD_RENDERING
-//#define DEFERRED_RENDERING
+#define DEFERRED_RENDERING
 //#define TILED_FORWARD_RENDERING
-#define TILED_DEFERRED_RENDERING
+//#define TILED_DEFERRED_RENDERING
 
 struct directional_light
 {
@@ -92,6 +92,7 @@ struct renderer_create_info
 #include "forward.h"
 #include "deferred.h"
 #include "tiled_forward.h"
+#include "tiled_deferred.h"
 
 struct render_scene
 {
@@ -116,7 +117,7 @@ struct render_scene
     u32 MaxNumRenderMeshes;
     u32 NumRenderMeshes;
     render_mesh* RenderMeshes;
-
+    
     // NOTE: Scene Instances
     u32 MaxNumInstances;
     u32 NumInstances;
@@ -142,6 +143,11 @@ struct demo_state
     render_fullscreen_pass CopyToSwapPass;
 
     render_scene Scene;
+
+    // NOTE: Saved model ids
+    u32 Quad;
+    u32 Cube;
+    u32 Sphere;
 
 #ifdef FORWARD_RENDERING
     forward_state ForwardState;

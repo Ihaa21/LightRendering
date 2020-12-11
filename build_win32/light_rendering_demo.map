@@ -1,6 +1,6 @@
  light_rendering_demo
 
- Timestamp is 5fd1357b (Wed Dec  9 15:37:15 2020)
+ Timestamp is 5fd3ad36 (Fri Dec 11 12:32:38 2020)
 
  Preferred load address is 0000000140000000
 
@@ -2887,12 +2887,12 @@
  0002:00000300       ?pre_cpp_initializer@@3P6AXXZEA 000000014003a300     LIBCMTD:exe_winmain.obj
  0002:00000318       ?pre_c_initializer@@3P6AHXZEA 000000014003a318     LIBCMTD:exe_winmain.obj
  0002:00000320       ?post_pgo_initializer@@3P6AHXZEA 000000014003a320     LIBCMTD:exe_winmain.obj
- 0002:00000390       $SG147409                  000000014003a390     win32_main.obj
- 0002:000003a0       $SG147411                  000000014003a3a0     win32_main.obj
- 0002:000003b0       $SG147413                  000000014003a3b0     win32_main.obj
- 0002:000003d8       $SG147414                  000000014003a3d8     win32_main.obj
- 0002:00000408       $SG147415                  000000014003a408     win32_main.obj
- 0002:00000420       $SG147416                  000000014003a420     win32_main.obj
+ 0002:00000390       $SG147461                  000000014003a390     win32_main.obj
+ 0002:000003a0       $SG147463                  000000014003a3a0     win32_main.obj
+ 0002:000003b0       $SG147465                  000000014003a3b0     win32_main.obj
+ 0002:000003d8       $SG147466                  000000014003a3d8     win32_main.obj
+ 0002:00000408       $SG147467                  000000014003a408     win32_main.obj
+ 0002:00000420       $SG147468                  000000014003a420     win32_main.obj
  0002:00000460       GS_ExceptionPointers       000000014003a460     LIBCMTD:gs_report.obj
  0002:000004d0       ?module_names@?A0xbfd18cd1@@3QBQEB_WB 000000014003a4d0     libvcruntimed:winapi_downlevel.obj
  0002:00000760       ?candidate_modules@?1??try_get_FlsAlloc@@YAP6AKP6AXPEAX@Z@ZXZ@4QBW4module_id@?A0xbfd18cd1@@B 000000014003a760     libvcruntimed:winapi_downlevel.obj

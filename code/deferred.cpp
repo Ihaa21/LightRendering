@@ -143,7 +143,7 @@ inline deferred_state DeferredCreate(renderer_create_info CreateInfo, VkDescript
             VkPipelineVertexBindingEnd(&Builder);
 
             VkPipelineInputAssemblyAdd(&Builder, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, VK_FALSE);
-            VkPipelineRasterizationStateSet(&Builder, VK_FALSE, VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_CLOCKWISE);
+            VkPipelineRasterizationStateSet(&Builder, VK_FALSE, VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
             VkPipelineDepthStateAdd(&Builder, VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS);
                 
             // NOTE: Set the blending state

@@ -99,12 +99,11 @@ layout(location = 0) out vec4 OutColor;
 void main()
 {
     vec3 CameraPos = vec3(0, 0, 0);
-    vec2 Uv = gl_FragCoord.xy / vec2(textureSize(GBufferPositionTexture, 0));
+    ivec2 PixelCoord = ivec2(gl_FragCoord.xy);
     
-    // TODO: This can all become loads since we are rendering at same resolution
-    vec3 SurfacePos = texture(GBufferPositionTexture, Uv).xyz;
-    vec3 SurfaceNormal = texture(GBufferNormalTexture, Uv).xyz;
-    vec3 SurfaceColor = texture(GBufferColorTexture, Uv).rgb;
+    vec3 SurfacePos = texelFetch(GBufferPositionTexture, PixelCoord, 0).xyz;
+    vec3 SurfaceNormal = texelFetch(GBufferNormalTexture, PixelCoord, 0).xyz;
+    vec3 SurfaceColor = texelFetch(GBufferColorTexture, PixelCoord, 0).rgb;
     vec3 View = normalize(CameraPos - SurfacePos);
 
     point_light CurrLight = PointLights[InInstanceId];
@@ -124,7 +123,7 @@ layout(location = 0) in vec3 InPos;
 
 void main()
 {
-    gl_Position = 2.0*vec4(InPos, 1);
+    gl_Position = vec4(2.0*InPos, 1);
 }
 
 #endif

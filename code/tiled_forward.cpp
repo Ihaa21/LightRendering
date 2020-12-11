@@ -84,7 +84,7 @@ inline tiled_forward_state TiledForwardCreate(renderer_create_info CreateInfo, v
             };
             
             Result.GridFrustumPipeline = VkPipelineComputeCreate(RenderState->Device, &RenderState->PipelineManager, &DemoState->TempArena,
-                                                                 "shader_grid_frustum.spv", "main", Layouts, ArrayCount(Layouts));
+                                                                 "shader_tiled_forward_grid_frustum.spv", "main", Layouts, ArrayCount(Layouts));
         }
 
         // NOTE: Depth Pre Pass
@@ -144,7 +144,7 @@ inline tiled_forward_state TiledForwardCreate(renderer_create_info CreateInfo, v
             };
             
             Result.LightCullPipeline = VkPipelineComputeCreate(RenderState->Device, &RenderState->PipelineManager, &DemoState->TempArena,
-                                                               "shader_light_culling.spv", "main", Layouts, ArrayCount(Layouts));
+                                                               "shader_tiled_forward_light_culling.spv", "main", Layouts, ArrayCount(Layouts));
         }
 
         // NOTE: Tiled Forward 

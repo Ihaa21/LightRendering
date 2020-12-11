@@ -3,6 +3,7 @@
 #include "forward.cpp"
 #include "deferred.cpp"
 #include "tiled_forward.cpp"
+#include "tiled_deferred.cpp"
 
 //
 // NOTE: Asset Storage System
@@ -166,7 +167,7 @@ DEMO_INIT(Init)
         render_scene* Scene = &DemoState->Scene;
 
         Scene->Camera = CameraFpsCreate(V3(0, 0, -5), V3(0, 0, 1), f32(RenderState->WindowWidth / RenderState->WindowHeight),
-                                        0.001f, 1000.0f, 90.0f, 1.0f, 0.04f);
+                                        0.001f, 1000.0f, 90.0f, 1.0f, 0.005f);
 
         Scene->SceneBuffer = VkBufferCreate(RenderState->Device, &RenderState->GpuArena,
                                             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -283,83 +284,16 @@ DEMO_INIT(Init)
 
             Copy(Texels, GpuMemory, ImageSize);
         }
-        
+                        
         // NOTE: Push meshes
-        u32 Quad = SceneMeshAdd(Scene, WhiteTexture, WhiteTexture, AssetsPushQuad());
-        u32 Cube = SceneMeshAdd(Scene, WhiteTexture, WhiteTexture, AssetsPushCube());
-        u32 Sphere = SceneMeshAdd(Scene, WhiteTexture, WhiteTexture, AssetsPushSphere(64, 64));
+        DemoState->Quad = SceneMeshAdd(Scene, WhiteTexture, WhiteTexture, AssetsPushQuad());
+        DemoState->Cube = SceneMeshAdd(Scene, WhiteTexture, WhiteTexture, AssetsPushCube());
+        DemoState->Sphere = SceneMeshAdd(Scene, WhiteTexture, WhiteTexture, AssetsPushSphere(64, 64));
 
 #ifdef DEFERRED_RENDERING
-        DeferredAddMeshes(&DemoState->DeferredState, Scene->RenderMeshes + Quad, Scene->RenderMeshes + Sphere);
+        DeferredAddMeshes(&DemoState->DeferredState, Scene->RenderMeshes + DemoState->Quad, Scene->RenderMeshes + DemoState->Sphere);
 #endif
-        
-        // NOTE: Populate scene
-        {
-            // NOTE: Push Instances
-            {
-                i32 NumX = 1;
-                i32 NumY = 1;
-                i32 NumZ = 1;
-                for (i32 Z = -NumZ; Z <= NumZ; ++Z)
-                {
-                    for (i32 Y = -NumY; Y <= NumY; ++Y)
-                    {
-                        for (i32 X = -NumX; X <= NumX; ++X)
-                        {
-                            m4 Transform = M4Pos(V3(X, Y, Z)) * M4Scale(V3(0.25f));
-                            SceneInstanceAdd(Scene, Sphere, Transform);
-                        }
-                    }
-                }
-                
-                gpu_instance_entry* GpuData = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->InstanceBuffer, gpu_instance_entry, Scene->NumInstances,
-                                                                       BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
-                                                                       BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
 
-                for (u32 InstanceId = 0; InstanceId < Scene->NumInstances; ++InstanceId)
-                {
-                    GpuData[InstanceId].WVTransform = Scene->Instances[InstanceId].WVTransform;
-                    GpuData[InstanceId].WVPTransform = Scene->Instances[InstanceId].WVPTransform;
-                }
-            }
-            
-            // NOTE: Push point lights
-            ScenePointLightAdd(Scene, V3(0.0f, 0.0f, -1.0f), V3(1.0f, 0.0f, 0.0f), 1);
-            ScenePointLightAdd(Scene, V3(-1.0f, 0.0f, 0.0f), V3(1.0f, 1.0f, 0.0f), 1);
-            ScenePointLightAdd(Scene, V3(0.0f, 1.0f, 1.0f), V3(1.0f, 0.0f, 1.0f), 1);
-            ScenePointLightAdd(Scene, V3(0.0f, -1.0f, 1.0f), V3(0.0f, 1.0f, 1.0f), 1);
-            ScenePointLightAdd(Scene, V3(-1.0f, 0.0f, -1.0f), V3(0.0f, 0.0f, 1.0f), 1);
-            
-            SceneDirectionalLightSet(Scene, Normalize(V3(0.0f, 0.0f, -1.0f)), 0.3f*V3(1.0f, 1.0f, 1.0f), V3(0, 0, 0)); //V3(0.4f, 0.4f, 0.4f));
-        }        
-        
-        // NOTE: Push Point Lights
-        {
-            point_light* PointLights = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->PointLightBuffer, point_light, Scene->MaxNumPointLights,
-                                                                BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
-                                                                BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
-            m4* Transforms = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->PointLightTransforms, m4, Scene->MaxNumPointLights,
-                                                      BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
-                                                      BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
-
-            for (u32 LightId = 0; LightId < Scene->MaxNumPointLights; ++LightId)
-            {
-                point_light* CurrLight = Scene->PointLights + LightId;
-                PointLights[LightId] = *CurrLight;
-                // NOTE: Convert to view space
-                PointLights[LightId].Pos = (CameraGetV(&Scene->Camera) * V4(CurrLight->Pos, 1.0f)).xyz;
-                Transforms[LightId] = CameraGetVP(&Scene->Camera) * M4Pos(CurrLight->Pos) * M4Scale(V3(CurrLight->MaxDistance));
-            }
-        }
-
-        // NOTE: Push Directional Lights
-        {
-            directional_light* GpuData = VkTransferPushWriteStruct(&RenderState->TransferManager, Scene->DirectionalLightBuffer, directional_light,
-                                                                   BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
-                                                                   BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
-            Copy(&Scene->DirectionalLight, GpuData, sizeof(directional_light));
-        }
-        
         VkDescriptorManagerFlush(RenderState->Device, &RenderState->DescriptorManager);
         VkTransferManagerFlush(&RenderState->TransferManager, RenderState->Device, RenderState->Commands.Buffer, &RenderState->BarrierManager);
     }
@@ -398,12 +332,82 @@ DEMO_MAIN_LOOP(MainLoop)
     VkPipelineUpdateShaders(RenderState->Device, &RenderState->CpuArena, &RenderState->PipelineManager);
 
     RenderTargetUpdateEntries(&DemoState->Arena, &DemoState->CopyToSwapTarget);
-
-    // NOTE: Upload scene uniforms
+    
+    // NOTE: Upload scene data
     {
         render_scene* Scene = &DemoState->Scene;
+        Scene->NumInstances = 0;
+        Scene->NumPointLights = 0;
         CameraUpdate(&Scene->Camera, CurrInput, PrevInput);
+        
+        // NOTE: Populate scene
+        {
+            // NOTE: Add Instances
+            {
+                i32 NumX = 1;
+                i32 NumY = 1;
+                i32 NumZ = 1;
+                for (i32 Z = -NumZ; Z <= NumZ; ++Z)
+                {
+                    for (i32 Y = -NumY; Y <= NumY; ++Y)
+                    {
+                        for (i32 X = -NumX; X <= NumX; ++X)
+                        {
+                            m4 Transform = M4Pos(V3(X, Y, Z)) * M4Scale(V3(0.25f));
+                            SceneInstanceAdd(Scene, DemoState->Sphere, Transform);
+                        }
+                    }
+                }
+                
+                gpu_instance_entry* GpuData = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->InstanceBuffer, gpu_instance_entry, Scene->NumInstances,
+                                                                       BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
+                                                                       BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
 
+                for (u32 InstanceId = 0; InstanceId < Scene->NumInstances; ++InstanceId)
+                {
+                    GpuData[InstanceId].WVTransform = Scene->Instances[InstanceId].WVTransform;
+                    GpuData[InstanceId].WVPTransform = Scene->Instances[InstanceId].WVPTransform;
+                }
+            }
+            
+            // NOTE: Add point lights
+            ScenePointLightAdd(Scene, V3(0.0f, 0.0f, -1.0f), V3(1.0f, 0.0f, 0.0f), 1);
+            ScenePointLightAdd(Scene, V3(-1.0f, 0.0f, 0.0f), V3(1.0f, 1.0f, 0.0f), 1);
+            ScenePointLightAdd(Scene, V3(0.0f, 1.0f, 1.0f), V3(1.0f, 0.0f, 1.0f), 1);
+            ScenePointLightAdd(Scene, V3(0.0f, -1.0f, 1.0f), V3(0.0f, 1.0f, 1.0f), 1);
+            ScenePointLightAdd(Scene, V3(-1.0f, 0.0f, -1.0f), V3(0.0f, 0.0f, 1.0f), 1);
+            
+            SceneDirectionalLightSet(Scene, Normalize(V3(0.0f, 0.0f, -1.0f)), 0.3f*V3(1.0f, 1.0f, 1.0f), V3(0, 0, 0)); //V3(0.4f, 0.4f, 0.4f));
+        }        
+        
+        // NOTE: Push Point Lights
+        {
+            point_light* PointLights = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->PointLightBuffer, point_light, Scene->MaxNumPointLights,
+                                                                BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
+                                                                BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
+            m4* Transforms = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->PointLightTransforms, m4, Scene->NumPointLights,
+                                                      BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
+                                                      BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
+
+            for (u32 LightId = 0; LightId < Scene->NumPointLights; ++LightId)
+            {
+                point_light* CurrLight = Scene->PointLights + LightId;
+                PointLights[LightId] = *CurrLight;
+                // NOTE: Convert to view space
+                v4 Test = CameraGetV(&Scene->Camera) * V4(CurrLight->Pos, 1.0f);
+                PointLights[LightId].Pos = (CameraGetV(&Scene->Camera) * V4(CurrLight->Pos, 1.0f)).xyz;
+                Transforms[LightId] = CameraGetVP(&Scene->Camera) * M4Pos(CurrLight->Pos) * M4Scale(V3(CurrLight->MaxDistance));
+            }
+        }
+
+        // NOTE: Push Directional Lights
+        {
+            directional_light* GpuData = VkTransferPushWriteStruct(&RenderState->TransferManager, Scene->DirectionalLightBuffer, directional_light,
+                                                                   BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
+                                                                   BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
+            Copy(&Scene->DirectionalLight, GpuData, sizeof(directional_light));
+        }
+        
         {
             scene_globals* Data = VkTransferPushWriteStruct(&RenderState->TransferManager, Scene->SceneBuffer, scene_globals,
                                                             BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT),
@@ -412,7 +416,7 @@ DEMO_MAIN_LOOP(MainLoop)
             Data->CameraPos = Scene->Camera.Pos;
             Data->NumPointLights = Scene->NumPointLights;
         }
-
+        
 #ifdef TILED_FORWARD_RENDERING
         TiledForwardPreRender(Commands, &DemoState->TiledForwardState, &DemoState->Scene);
 #endif
