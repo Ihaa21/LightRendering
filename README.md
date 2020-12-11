@@ -1,8 +1,7 @@
 # LightRendering
 
-![](data/LightRenderingImage.png)
+![](data/Screenshots1.png)
 <p align="center">
-<sub><i>Test</i></sub>
 </p>
 
 This is a reference implementation of forward rendering, deferred rendering, and their tiled variants. Its not meant to be a exhaustive engine or fast implementations, but more of something you can copy to a different demo and build upon if wanted. I may decide to speed up some parts of the implementation at some point but for now its just a reference. The GBuffer formats are very unoptimized as well. The implementation currently only works on solid geometry but I will add transparent geometry as well as MSAA to all the techniques.
