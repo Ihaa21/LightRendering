@@ -15,6 +15,8 @@ Some of the shaders might be commented out with REM but you can uncomment those 
 
 # TODO
 
+- Make git ignore the contents of build_win32 except for the sln file
+- Make git auto pull the library dependencies to a libs folder
 - Add tiled deferred rendering
 - Add transparent objects to all renderers
 - Add MSAA support to all renderers
