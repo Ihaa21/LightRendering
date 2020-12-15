@@ -9,7 +9,7 @@ set VulkanBinDir="C:\VulkanSDK\1.2.135.0\Bin"
 set AssimpIncludeDir="%LibsDir%\assimp-5.0.1\include"
 set AssimpLibDir=%LibsDir%\assimp-5.0.1\lib\RelWithDebInfo
 
-set CommonCompilerFlags=-O2 -MTd -nologo -fp:fast -fp:except- -EHsc -Gm- -GR- -EHa- -Zo -Oi -WX -W4 -wd4127 -wd4201 -wd4100 -wd4189 -wd4505 -Z7 -FC
+set CommonCompilerFlags=-Od -MTd -nologo -fp:fast -fp:except- -EHsc -Gm- -GR- -EHa- -Zo -Oi -WX -W4 -wd4127 -wd4201 -wd4100 -wd4189 -wd4505 -Z7 -FC
 set CommonCompilerFlags=-I %VulkanIncludeDir% %CommonCompilerFlags%
 set CommonCompilerFlags=-I %LibsDir% -I %AssimpIncludeDir% %CommonCompilerFlags%
 REM Check the DLLs here
