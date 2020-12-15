@@ -13,20 +13,18 @@ This is a reference implementation of forward rendering, deferred rendering, and
 
 # How to Build
 
-Theres a batch file in the code folder that can be run to build the program as well as generate all the shaders. You may have to adjust some of the paths to various files (will try to fix a bit of this later). The code polls for a libs directory. In there, it expects to have the following repositories I've created:
+- clone with --recurse-submodules
+- add assimp to the lib folder or comment out all assimp references in the framework code
+- Run code/build.bat (you can adjust the commands here for shaders and c++ code like O0 or O2). 
+- Open the exe in visual studio as a project and set the working directory to the data folder. You can use the sln for debugging the project.
 
-- Math
-- Memory
-- Graphics_Utils
-- Framework_Vulkan
+# How to Run
 
-Some of the shaders might be commented out with REM but you can uncomment those for a first build. You might have to change the sln paths to match your build directory + make the data directory the working directory.
+- Follow above on building the code
+- Run the exe from the data directory
 
 # TODO
 
-- Make git ignore the contents of build_win32 except for the sln file (and make the paths in the sln relative)
-- Make git auto pull the library dependencies to a libs folder
-- Add tiled deferred rendering
 - Add transparent objects to all renderers
 - Add MSAA support to all renderers
 - Add GPU profiling and maybe try out some optimizations
