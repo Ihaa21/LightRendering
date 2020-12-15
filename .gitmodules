@@ -1,15 +1,15 @@
-[submodule "libs\\math"]
-	path = libs\\math
+[submodule "libs/math"]
+	path = libs/math
 	url = https://github.com/Ihaa21/math.git
-[submodule "libs\\framework_vulkan"]
-	path = libs\\framework_vulkan
+[submodule "libs/framework_vulkan"]
+	path = libs/framework_vulkan
 	url = https://github.com/Ihaa21/framework_vulkan.git
-[submodule "libs\\graphics_utils"]
-	path = libs\\graphics_utils
+[submodule "libs/graphics_utils"]
+	path = libs/graphics_utils
 	url = https://github.com/Ihaa21/graphics_utils.git
-[submodule "libs\\profiling"]
-	path = libs\\profiling
+[submodule "libs/profiling"]
+	path = libs/profiling
 	url = https://github.com/Ihaa21/profiling.git
-[submodule "libs\\memory"]
-	path = libs\\memory
+[submodule "libs/memory"]
+	path = libs/memory
 	url = https://github.com/Ihaa21/memory.git
