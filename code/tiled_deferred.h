@@ -19,13 +19,13 @@ struct tiled_deferred_state
     render_target_entry GBufferPositionEntry;
     render_target_entry GBufferNormalEntry;
     render_target_entry GBufferColorEntry;
-    
-    render_target_entry OutColorEntry;
     render_target_entry DepthEntry;
-    render_target RenderTarget;
+    render_target_entry OutColorEntry;
+    render_target GBufferPass;
+    render_target LightingPass;
 
     // NOTE: Global data
-    VkBuffer TiledForwardGlobals;
+    VkBuffer TiledDeferredGlobals;
     VkBuffer GridFrustums;
     VkBuffer LightIndexList_O;
     VkBuffer LightIndexCounter_O; // TODO: Should this be its own buffer? Might help with cache lines
@@ -36,9 +36,11 @@ struct tiled_deferred_state
     VkDescriptorSetLayout TiledDeferredDescLayout;
     VkDescriptorSet TiledDeferredDescriptor;
 
+    render_mesh* QuadMesh;
+    
     vk_pipeline* GridFrustumPipeline;
     vk_pipeline* GBufferPipeline;
     vk_pipeline* LightCullPipeline;
-    vk_pipeline* TiledDeferredPipeline;
+    vk_pipeline* LightingPipeline;
 };
 

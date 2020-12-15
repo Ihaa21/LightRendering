@@ -89,9 +89,9 @@ inline void ForwardRender(vk_commands Commands, forward_state* ForwardState, ren
                                     ArrayCount(DescriptorSets), DescriptorSets, 0, 0);
         }
         
-        for (u32 InstanceId = 0; InstanceId < Scene->NumInstances; ++InstanceId)
+        for (u32 InstanceId = 0; InstanceId < Scene->NumOpaqueInstances; ++InstanceId)
         {
-            instance_entry* CurrInstance = Scene->Instances + InstanceId;
+            instance_entry* CurrInstance = Scene->OpaqueInstances + InstanceId;
             render_mesh* CurrMesh = Scene->RenderMeshes + CurrInstance->MeshId;
 
             {

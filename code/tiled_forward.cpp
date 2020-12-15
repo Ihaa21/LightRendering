@@ -277,10 +277,6 @@ inline void TiledForwardPreRender(vk_commands Commands, tiled_forward_state* Sta
         Data->ScreenSize = V2(RenderState->WindowWidth, RenderState->WindowHeight);
         Data->GridSizeX = CeilU32(f32(RenderState->WindowWidth) / f32(TILE_SIZE_IN_PIXELS));
         Data->GridSizeY = CeilU32(f32(RenderState->WindowHeight) / f32(TILE_SIZE_IN_PIXELS));
-
-        // TODO: Appears that inverse doesn't gen the same as online results
-        m4 Test = CameraGetVP(&Scene->Camera) * Data->InverseProjection;
-        int i = 0;
     }
 }
 
@@ -314,9 +310,9 @@ inline void TiledForwardRender(vk_commands Commands, tiled_forward_state* State,
                                     ArrayCount(DescriptorSets), DescriptorSets, 0, 0);
         }
 
-        for (u32 InstanceId = 0; InstanceId < Scene->NumInstances; ++InstanceId)
+        for (u32 InstanceId = 0; InstanceId < Scene->NumOpaqueInstances; ++InstanceId)
         {
-            instance_entry* CurrInstance = Scene->Instances + InstanceId;
+            instance_entry* CurrInstance = Scene->OpaqueInstances + InstanceId;
             render_mesh* CurrMesh = Scene->RenderMeshes + CurrInstance->MeshId;
             
             VkDeviceSize Offset = 0;
@@ -327,6 +323,7 @@ inline void TiledForwardRender(vk_commands Commands, tiled_forward_state* State,
     }
     RenderTargetRenderPassEnd(Commands);
 
+    // TODO: Do we have to do this if we instead do the transition in the render pass?
     // NOTE: Transition depth buffer for reading
     VkBarrierImageAdd(&RenderState->BarrierManager, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                       VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -363,9 +360,9 @@ inline void TiledForwardRender(vk_commands Commands, tiled_forward_state* State,
                                     ArrayCount(DescriptorSets), DescriptorSets, 0, 0);
         }
         
-        for (u32 InstanceId = 0; InstanceId < Scene->NumInstances; ++InstanceId)
+        for (u32 InstanceId = 0; InstanceId < Scene->NumOpaqueInstances; ++InstanceId)
         {
-            instance_entry* CurrInstance = Scene->Instances + InstanceId;
+            instance_entry* CurrInstance = Scene->OpaqueInstances + InstanceId;
             render_mesh* CurrMesh = Scene->RenderMeshes + CurrInstance->MeshId;
 
             {

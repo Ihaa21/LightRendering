@@ -348,10 +348,25 @@ void main()
 #endif
 
 //
+// NOTE: Directional Light Vert
+//
+
+#if TILED_DEFERRED_LIGHTING_VERT
+
+layout(location = 0) in vec3 InPos;
+
+void main()
+{
+    gl_Position = vec4(2.0*InPos, 1);
+}
+
+#endif
+
+//
 // NOTE: Tiled Deferred Lighting
 //
 
-#if TILED_DEFERRED_LIGHTING
+#if TILED_DEFERRED_LIGHTING_FRAG
 
 layout(location = 0) out vec4 OutColor;
 

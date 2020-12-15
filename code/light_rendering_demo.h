@@ -27,9 +27,9 @@
  */
 
 //#define FORWARD_RENDERING
-#define DEFERRED_RENDERING
+//#define DEFERRED_RENDERING
 //#define TILED_FORWARD_RENDERING
-//#define TILED_DEFERRED_RENDERING
+#define TILED_DEFERRED_RENDERING
 
 struct directional_light
 {
@@ -118,11 +118,11 @@ struct render_scene
     u32 NumRenderMeshes;
     render_mesh* RenderMeshes;
     
-    // NOTE: Scene Instances
-    u32 MaxNumInstances;
-    u32 NumInstances;
-    instance_entry* Instances;
-    VkBuffer InstanceBuffer;
+    // NOTE: Opaque Instances
+    u32 MaxNumOpaqueInstances;
+    u32 NumOpaqueInstances;
+    instance_entry* OpaqueInstances;
+    VkBuffer OpaqueInstanceBuffer;
 };
 
 struct demo_state

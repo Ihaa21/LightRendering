@@ -35,11 +35,11 @@ inline u32 SceneMeshAdd(render_scene* Scene, vk_image Color, vk_image Normal, pr
     return Result;
 }
 
-inline void SceneInstanceAdd(render_scene* Scene, u32 MeshId, m4 WTransform)
+inline void SceneOpaqueInstanceAdd(render_scene* Scene, u32 MeshId, m4 WTransform)
 {
-    Assert(Scene->NumInstances < Scene->MaxNumInstances);
+    Assert(Scene->NumOpaqueInstances < Scene->MaxNumOpaqueInstances);
 
-    instance_entry* Instance = Scene->Instances + Scene->NumInstances++;
+    instance_entry* Instance = Scene->OpaqueInstances + Scene->NumOpaqueInstances++;
     Instance->MeshId = MeshId;
     Instance->WVTransform = CameraGetV(&Scene->Camera)*WTransform;
     Instance->WVPTransform = CameraGetP(&Scene->Camera)*Instance->WVTransform;
@@ -189,11 +189,11 @@ DEMO_INIT(Init)
         Scene->MaxNumRenderMeshes = 1000;
         Scene->RenderMeshes = PushArray(&DemoState->Arena, render_mesh, Scene->MaxNumRenderMeshes);
 
-        Scene->MaxNumInstances = 1000;
-        Scene->Instances = PushArray(&DemoState->Arena, instance_entry, Scene->MaxNumInstances);
-        Scene->InstanceBuffer = VkBufferCreate(RenderState->Device, &RenderState->GpuArena,
-                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                               sizeof(gpu_instance_entry)*Scene->MaxNumInstances);
+        Scene->MaxNumOpaqueInstances = 1000;
+        Scene->OpaqueInstances = PushArray(&DemoState->Arena, instance_entry, Scene->MaxNumOpaqueInstances);
+        Scene->OpaqueInstanceBuffer = VkBufferCreate(RenderState->Device, &RenderState->GpuArena,
+                                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                                     sizeof(gpu_instance_entry)*Scene->MaxNumOpaqueInstances);
 
         // NOTE: Create general descriptor set layouts
         {
@@ -218,7 +218,7 @@ DEMO_INIT(Init)
         // NOTE: Populate descriptors
         Scene->SceneDescriptor = VkDescriptorSetAllocate(RenderState->Device, RenderState->DescriptorPool, Scene->SceneDescLayout);
         VkDescriptorBufferWrite(&RenderState->DescriptorManager, Scene->SceneDescriptor, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, Scene->SceneBuffer);
-        VkDescriptorBufferWrite(&RenderState->DescriptorManager, Scene->SceneDescriptor, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Scene->InstanceBuffer);
+        VkDescriptorBufferWrite(&RenderState->DescriptorManager, Scene->SceneDescriptor, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Scene->OpaqueInstanceBuffer);
         VkDescriptorBufferWrite(&RenderState->DescriptorManager, Scene->SceneDescriptor, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Scene->PointLightBuffer);
         VkDescriptorBufferWrite(&RenderState->DescriptorManager, Scene->SceneDescriptor, 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Scene->DirectionalLightBuffer);
         VkDescriptorBufferWrite(&RenderState->DescriptorManager, Scene->SceneDescriptor, 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Scene->PointLightTransforms);
@@ -245,6 +245,9 @@ DEMO_INIT(Init)
 #endif
 #ifdef TILED_FORWARD_RENDERING
         DemoState->TiledForwardState = TiledForwardCreate(CreateInfo, Commands, &OutputRtSet);
+#endif
+#ifdef TILED_DEFERRED_RENDERING
+        TiledDeferredCreate(CreateInfo, Commands, &OutputRtSet, &DemoState->TiledDeferredState);
 #endif
     }
 
@@ -293,6 +296,9 @@ DEMO_INIT(Init)
 #ifdef DEFERRED_RENDERING
         DeferredAddMeshes(&DemoState->DeferredState, Scene->RenderMeshes + DemoState->Quad, Scene->RenderMeshes + DemoState->Sphere);
 #endif
+#ifdef TILED_DEFERRED_RENDERING
+        TiledDeferredAddMeshes(&DemoState->TiledDeferredState, Scene->RenderMeshes + DemoState->Quad);
+#endif
 
         VkDescriptorManagerFlush(RenderState->Device, &RenderState->DescriptorManager);
         VkTransferManagerFlush(&RenderState->TransferManager, RenderState->Device, RenderState->Commands.Buffer, &RenderState->BarrierManager);
@@ -336,7 +342,7 @@ DEMO_MAIN_LOOP(MainLoop)
     // NOTE: Upload scene data
     {
         render_scene* Scene = &DemoState->Scene;
-        Scene->NumInstances = 0;
+        Scene->NumOpaqueInstances = 0;
         Scene->NumPointLights = 0;
         CameraUpdate(&Scene->Camera, CurrInput, PrevInput);
         
@@ -354,19 +360,19 @@ DEMO_MAIN_LOOP(MainLoop)
                         for (i32 X = -NumX; X <= NumX; ++X)
                         {
                             m4 Transform = M4Pos(V3(X, Y, Z)) * M4Scale(V3(0.25f));
-                            SceneInstanceAdd(Scene, DemoState->Sphere, Transform);
+                            SceneOpaqueInstanceAdd(Scene, DemoState->Sphere, Transform);
                         }
                     }
                 }
                 
-                gpu_instance_entry* GpuData = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->InstanceBuffer, gpu_instance_entry, Scene->NumInstances,
+                gpu_instance_entry* GpuData = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->OpaqueInstanceBuffer, gpu_instance_entry, Scene->NumOpaqueInstances,
                                                                        BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
                                                                        BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
 
-                for (u32 InstanceId = 0; InstanceId < Scene->NumInstances; ++InstanceId)
+                for (u32 InstanceId = 0; InstanceId < Scene->NumOpaqueInstances; ++InstanceId)
                 {
-                    GpuData[InstanceId].WVTransform = Scene->Instances[InstanceId].WVTransform;
-                    GpuData[InstanceId].WVPTransform = Scene->Instances[InstanceId].WVPTransform;
+                    GpuData[InstanceId].WVTransform = Scene->OpaqueInstances[InstanceId].WVTransform;
+                    GpuData[InstanceId].WVPTransform = Scene->OpaqueInstances[InstanceId].WVPTransform;
                 }
             }
             
@@ -420,6 +426,9 @@ DEMO_MAIN_LOOP(MainLoop)
 #ifdef TILED_FORWARD_RENDERING
         TiledForwardPreRender(Commands, &DemoState->TiledForwardState, &DemoState->Scene);
 #endif
+#ifdef TILED_DEFERRED_RENDERING
+        TiledDeferredPreRender(Commands, &DemoState->TiledDeferredState, &DemoState->Scene);
+#endif
         
         VkTransferManagerFlush(&RenderState->TransferManager, RenderState->Device, RenderState->Commands.Buffer, &RenderState->BarrierManager);
     }
@@ -433,6 +442,9 @@ DEMO_MAIN_LOOP(MainLoop)
 #endif
 #ifdef TILED_FORWARD_RENDERING
     TiledForwardRender(Commands, &DemoState->TiledForwardState, &DemoState->Scene);
+#endif
+#ifdef TILED_DEFERRED_RENDERING
+    TiledDeferredRender(Commands, &DemoState->TiledDeferredState, &DemoState->Scene);
 #endif
     FullScreenPassRender(Commands, &DemoState->CopyToSwapPass);
     
