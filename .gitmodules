@@ -4,7 +4,7 @@
 [submodule "libs\\framework_vulkan"]
 	path = libs\\framework_vulkan
 	url = https://github.com/Ihaa21/framework_vulkan.git
-[submodule "graphics_utils"]
+[submodule "libs\\graphics_utils"]
 	path = libs\\graphics_utils
 	url = https://github.com/Ihaa21/graphics_utils.git
 [submodule "libs\\profiling"]
