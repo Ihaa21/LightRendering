@@ -2,7 +2,7 @@
 
 set CodeDir=..\code
 set DataDir=..\data
-set LibsDir=D:\Code\Libs
+set LibsDir=..\libs
 set OutputDir=..\build_win32
 set VulkanIncludeDir="C:\VulkanSDK\1.2.135.0\Include\vulkan"
 set VulkanBinDir="C:\VulkanSDK\1.2.135.0\Bin"
@@ -13,7 +13,8 @@ set CommonCompilerFlags=-Od -MTd -nologo -fp:fast -fp:except- -EHsc -Gm- -GR- -E
 set CommonCompilerFlags=-I %VulkanIncludeDir% %CommonCompilerFlags%
 set CommonCompilerFlags=-I %LibsDir% -I %AssimpIncludeDir% %CommonCompilerFlags%
 REM Check the DLLs here
-set CommonLinkerFlags=-incremental:no -opt:ref user32.lib gdi32.lib Winmm.lib opengl32.lib DbgHelp.lib d3d12.lib dxgi.lib d3dcompiler.lib %AssimpLibDir%\assimp-vc142-mt.lib
+REM %AssimpLibDir%\assimp-vc142-mt.lib
+set CommonLinkerFlags=-incremental:no -opt:ref user32.lib gdi32.lib Winmm.lib opengl32.lib DbgHelp.lib d3d12.lib dxgi.lib d3dcompiler.lib 
 
 IF NOT EXIST %OutputDir% mkdir %OutputDir%
 
