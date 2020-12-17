@@ -25,6 +25,7 @@ This is a reference implementation of forward rendering, deferred rendering, and
 
 # TODO
 
+- Fix resizing bug, seems to require translating the window for resize to adjust itself
 - Add transparent objects to all renderers
 - Add MSAA support to all renderers
 - Add GPU profiling and maybe try out some optimizations
