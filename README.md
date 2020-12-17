@@ -22,6 +22,7 @@ This is a reference implementation of forward rendering, deferred rendering, and
 
 - Follow above on building the code
 - Run the exe from the data directory
+- You can change which renderer is being used by going to the top of LightRendering.h and changing with #define is used.
 
 # TODO
 
