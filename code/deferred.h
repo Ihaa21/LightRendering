@@ -2,6 +2,8 @@
 
 struct deferred_state
 {
+    vk_linear_arena RenderTargetArena;
+    
     // NOTE: GBuffer
     render_target_entry GBufferPositionEntry;
     render_target_entry GBufferNormalEntry;

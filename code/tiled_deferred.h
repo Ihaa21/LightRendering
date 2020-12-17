@@ -1,7 +1,6 @@
 #pragma once
 
 #define TILE_SIZE_IN_PIXELS 8
-// TODO: Move to shader
 #define MAX_LIGHTS_PER_TILE 1024
 
 struct tiled_deferred_globals
@@ -15,6 +14,8 @@ struct tiled_deferred_globals
 
 struct tiled_deferred_state
 {
+    vk_linear_arena RenderTargetArena;
+    
     // NOTE: GBuffer
     render_target_entry GBufferPositionEntry;
     render_target_entry GBufferNormalEntry;
@@ -28,10 +29,10 @@ struct tiled_deferred_state
     VkBuffer TiledDeferredGlobals;
     VkBuffer GridFrustums;
     VkBuffer LightIndexList_O;
-    VkBuffer LightIndexCounter_O; // TODO: Should this be its own buffer? Might help with cache lines
+    VkBuffer LightIndexCounter_O;
     vk_image LightGrid_O;
     VkBuffer LightIndexList_T;
-    VkBuffer LightIndexCounter_T; // TODO: Should this be its own buffer? Might help with cache lines
+    VkBuffer LightIndexCounter_T;
     vk_image LightGrid_T;
     VkDescriptorSetLayout TiledDeferredDescLayout;
     VkDescriptorSet TiledDeferredDescriptor;

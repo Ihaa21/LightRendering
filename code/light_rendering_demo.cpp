@@ -224,38 +224,38 @@ DEMO_INIT(Init)
         VkDescriptorBufferWrite(&RenderState->DescriptorManager, Scene->SceneDescriptor, 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Scene->PointLightTransforms);
     }
 
-    // NOTE: Begin init command buffer
-    vk_commands Commands = RenderState->Commands;
-    VkCommandsBegin(RenderState->Device, Commands);
-
     // NOTE: Create render data
-    VkDescriptorSet OutputRtSet = VkDescriptorSetAllocate(RenderState->Device, RenderState->DescriptorPool, DemoState->CopyToSwapDescLayout);
+    DemoState->SwapChainFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    DemoState->CopyToSwapDesc = VkDescriptorSetAllocate(RenderState->Device, RenderState->DescriptorPool, DemoState->CopyToSwapDescLayout);
     {
         renderer_create_info CreateInfo = {};
         CreateInfo.Width = RenderState->WindowWidth;
         CreateInfo.Height = RenderState->WindowHeight;
-        CreateInfo.ColorFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        CreateInfo.ColorFormat = DemoState->SwapChainFormat;
         CreateInfo.MaterialDescLayout = DemoState->Scene.MaterialDescLayout;
         CreateInfo.SceneDescLayout = DemoState->Scene.SceneDescLayout;
+        CreateInfo.Scene = &DemoState->Scene;
 #ifdef FORWARD_RENDERING
-        DemoState->ForwardState = ForwardCreate(CreateInfo, &OutputRtSet);
+        ForwardCreate(CreateInfo, &DemoState->CopyToSwapDesc, &DemoState->ForwardState);
 #endif
 #ifdef DEFERRED_RENDERING
-        DemoState->DeferredState = DeferredCreate(CreateInfo, &OutputRtSet);
+        DeferredCreate(CreateInfo, &DemoState->CopyToSwapDesc, &DemoState->DeferredState);
 #endif
 #ifdef TILED_FORWARD_RENDERING
-        DemoState->TiledForwardState = TiledForwardCreate(CreateInfo, Commands, &OutputRtSet);
+        TiledForwardCreate(CreateInfo, &DemoState->CopyToSwapDesc, &DemoState->TiledForwardState);
 #endif
 #ifdef TILED_DEFERRED_RENDERING
-        TiledDeferredCreate(CreateInfo, Commands, &OutputRtSet, &DemoState->TiledDeferredState);
+        TiledDeferredCreate(CreateInfo, &DemoState->CopyToSwapDesc, &DemoState->TiledDeferredState);
 #endif
     }
 
     // NOTE: Copy To Swap FullScreen Pass
     DemoState->CopyToSwapPass = FullScreenPassCreate("shader_copy_to_swap_frag.spv", "main", &DemoState->CopyToSwapTarget, 1,
-                                                     &DemoState->CopyToSwapDescLayout, 1, &OutputRtSet);
+                                                     &DemoState->CopyToSwapDescLayout, 1, &DemoState->CopyToSwapDesc);
     
     // NOTE: Upload assets
+    vk_commands Commands = RenderState->Commands;
+    VkCommandsBegin(RenderState->Device, Commands);
     {
         render_scene* Scene = &DemoState->Scene;
         
@@ -311,6 +311,34 @@ DEMO_DESTROY(Destroy)
 {
 }
 
+DEMO_SWAPCHAIN_CHANGE(SwapChainChange)
+{
+    VkCheckResult(vkDeviceWaitIdle(RenderState->Device));
+    VkSwapChainReCreate(&DemoState->TempArena, WindowWidth, WindowHeight, RenderState->PresentMode);
+
+    DemoState->SwapChainEntry.Width = RenderState->WindowWidth;
+    DemoState->SwapChainEntry.Height = RenderState->WindowHeight;
+
+    DemoState->Scene.Camera.AspectRatio = f32(RenderState->WindowWidth / RenderState->WindowHeight);
+    
+#ifdef FORWARD_RENDERING
+    ForwardSwapChainChange(&DemoState->ForwardState, RenderState->WindowWidth, RenderState->WindowHeight,
+                           DemoState->SwapChainFormat, &DemoState->Scene, &DemoState->CopyToSwapDesc);
+#endif
+#ifdef DEFERRED_RENDERING
+    DeferredSwapChainChange(&DemoState->DeferredState, RenderState->WindowWidth, RenderState->WindowHeight,
+                            DemoState->SwapChainFormat, &DemoState->Scene, &DemoState->CopyToSwapDesc);
+#endif
+#ifdef TILED_FORWARD_RENDERING
+    TiledForwardSwapChainChange(&DemoState->TiledForwardState, RenderState->WindowWidth, RenderState->WindowHeight,
+                                DemoState->SwapChainFormat, &DemoState->Scene, &DemoState->CopyToSwapDesc);
+#endif
+#ifdef TILED_DEFERRED_RENDERING
+    TiledDeferredSwapChainChange(&DemoState->TiledDeferredState, RenderState->WindowWidth, RenderState->WindowHeight,
+                                 DemoState->SwapChainFormat, &DemoState->Scene, &DemoState->CopyToSwapDesc);
+#endif
+}
+
 DEMO_CODE_RELOAD(CodeReload)
 {
     linear_arena Arena = LinearArenaCreate(ProgramMemory, ProgramMemorySize);
@@ -326,8 +354,7 @@ DEMO_CODE_RELOAD(CodeReload)
 DEMO_MAIN_LOOP(MainLoop)
 {
     u32 ImageIndex;
-    VkCheckResult(vkAcquireNextImageKHR(RenderState->Device, RenderState->SwapChain,
-                                        UINT64_MAX, RenderState->ImageAvailableSemaphore,
+    VkCheckResult(vkAcquireNextImageKHR(RenderState->Device, RenderState->SwapChain, UINT64_MAX, RenderState->ImageAvailableSemaphore,
                                         VK_NULL_HANDLE, &ImageIndex));
     DemoState->SwapChainEntry.View = RenderState->SwapChainViews[ImageIndex];
 
@@ -337,7 +364,7 @@ DEMO_MAIN_LOOP(MainLoop)
     // NOTE: Update pipelines
     VkPipelineUpdateShaders(RenderState->Device, &RenderState->CpuArena, &RenderState->PipelineManager);
 
-    RenderTargetUpdateEntries(&DemoState->Arena, &DemoState->CopyToSwapTarget);
+    RenderTargetUpdateEntries(&DemoState->TempArena, &DemoState->CopyToSwapTarget);
     
     // NOTE: Upload scene data
     {
@@ -422,14 +449,7 @@ DEMO_MAIN_LOOP(MainLoop)
             Data->CameraPos = Scene->Camera.Pos;
             Data->NumPointLights = Scene->NumPointLights;
         }
-        
-#ifdef TILED_FORWARD_RENDERING
-        TiledForwardPreRender(Commands, &DemoState->TiledForwardState, &DemoState->Scene);
-#endif
-#ifdef TILED_DEFERRED_RENDERING
-        TiledDeferredPreRender(Commands, &DemoState->TiledDeferredState, &DemoState->Scene);
-#endif
-        
+
         VkTransferManagerFlush(&RenderState->TransferManager, RenderState->Device, RenderState->Commands.Buffer, &RenderState->BarrierManager);
     }
 
@@ -463,7 +483,7 @@ DEMO_MAIN_LOOP(MainLoop)
     SubmitInfo.signalSemaphoreCount = 1;
     SubmitInfo.pSignalSemaphores = &RenderState->FinishedRenderingSemaphore;
     VkCheckResult(vkQueueSubmit(RenderState->GraphicsQueue, 1, &SubmitInfo, Commands.Fence));
-            
+    
     VkPresentInfoKHR PresentInfo = {};
     PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     PresentInfo.waitSemaphoreCount = 1;

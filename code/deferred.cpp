@@ -1,52 +1,92 @@
 
-inline deferred_state DeferredCreate(renderer_create_info CreateInfo, VkDescriptorSet* OutputRtSet)
+inline void DeferredSwapChainChange(deferred_state* State, u32 Width, u32 Height, VkFormat ColorFormat, render_scene* Scene,
+                                    VkDescriptorSet* OutputRtSet)
 {
-    deferred_state Result = {};
+    b32 ReCreate = State->RenderTargetArena.Used != 0;
+    VkArenaClear(&State->RenderTargetArena);
 
-    // TODO: We need sampled bit as well as input attachment? Doesn't one imply the other?
-    VkImageLayout GBufferLayout = VkImageLayout(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    Result.GBufferPositionEntry = RenderTargetEntryCreate(&RenderState->GpuArena, CreateInfo.Width, CreateInfo.Height,
-                                                          VK_FORMAT_R32G32B32A32_SFLOAT, GBufferLayout, VK_IMAGE_ASPECT_COLOR_BIT);
-    Result.GBufferNormalEntry = RenderTargetEntryCreate(&RenderState->GpuArena, CreateInfo.Width, CreateInfo.Height,
-                                                        VK_FORMAT_R16G16B16A16_SNORM, GBufferLayout, VK_IMAGE_ASPECT_COLOR_BIT);
-    Result.GBufferColorEntry = RenderTargetEntryCreate(&RenderState->GpuArena, CreateInfo.Width, CreateInfo.Height,
-                                                       VK_FORMAT_R8G8B8A8_UNORM, GBufferLayout, VK_IMAGE_ASPECT_COLOR_BIT);
-    
-    Result.OutColorEntry = RenderTargetEntryCreate(&RenderState->GpuArena, CreateInfo.Width, CreateInfo.Height,
-                                                   CreateInfo.ColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                                   VK_IMAGE_ASPECT_COLOR_BIT);
-    Result.DepthEntry = RenderTargetEntryCreate(&RenderState->GpuArena, CreateInfo.Width, CreateInfo.Height,
-                                                VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                                                VK_IMAGE_ASPECT_DEPTH_BIT);
+    // NOTE: Render Target Data
+    {
+        // TODO: We need sampled bit as well as input attachment? Doesn't one imply the other?
+        VkImageLayout GBufferLayout = VkImageLayout(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                  GBufferLayout, VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferPositionEntry);
+        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R16G16B16A16_SNORM, GBufferLayout,
+                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferNormalEntry);
+        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R8G8B8A8_UNORM, GBufferLayout,
+                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferColorEntry);
+        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, ColorFormat,
+                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
+                                  &State->OutColorEntry);
+        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_D32_SFLOAT,
+                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, &State->DepthEntry);
 
-    VkDescriptorImageWrite(&RenderState->DescriptorManager, *OutputRtSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                           Result.OutColorEntry.View, DemoState->LinearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (ReCreate)
+        {
+            RenderTargetUpdateEntries(&DemoState->TempArena, &State->RenderTarget);
+        }
+        
+        VkDescriptorImageWrite(&RenderState->DescriptorManager, State->GBufferDescriptor, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                               State->GBufferPositionEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        VkDescriptorImageWrite(&RenderState->DescriptorManager, State->GBufferDescriptor, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                               State->GBufferNormalEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        VkDescriptorImageWrite(&RenderState->DescriptorManager, State->GBufferDescriptor, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                               State->GBufferColorEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        VkDescriptorImageWrite(&RenderState->DescriptorManager, *OutputRtSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                               State->OutColorEntry.View, DemoState->LinearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+
+    VkDescriptorManagerFlush(RenderState->Device, &RenderState->DescriptorManager);
+}
+
+inline void DeferredCreate(renderer_create_info CreateInfo, VkDescriptorSet* OutputRtSet, deferred_state* Result)
+{
+    *Result = {};
+
+    u64 HeapSize = GigaBytes(1);
+    Result->RenderTargetArena = VkLinearArenaCreate(VkMemoryAllocate(RenderState->Device, RenderState->LocalMemoryId, HeapSize), HeapSize);
+
+    // NOTE: GBuffer Descriptor Set
+    {
+        {
+            vk_descriptor_layout_builder Builder = VkDescriptorLayoutBegin(&Result->GBufferDescLayout);
+            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+            VkDescriptorLayoutEnd(RenderState->Device, &Builder);
+        }
+
+        Result->GBufferDescriptor = VkDescriptorSetAllocate(RenderState->Device, RenderState->DescriptorPool, Result->GBufferDescLayout);
+    }
+
+    DeferredSwapChainChange(Result, CreateInfo.Width, CreateInfo.Height, CreateInfo.ColorFormat, CreateInfo.Scene, OutputRtSet);
     
     // NOTE: RT
     {
         render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, CreateInfo.Width, CreateInfo.Height);
-        RenderTargetAddTarget(&Builder, &Result.GBufferPositionEntry, VkClearColorCreate(0, 0, 0, 0));
-        RenderTargetAddTarget(&Builder, &Result.GBufferNormalEntry, VkClearColorCreate(0, 0, 0, 0));
-        RenderTargetAddTarget(&Builder, &Result.GBufferColorEntry, VkClearColorCreate(0, 0, 0, 1));
-        RenderTargetAddTarget(&Builder, &Result.OutColorEntry, VkClearColorCreate(0, 0, 0, 1));
-        RenderTargetAddTarget(&Builder, &Result.DepthEntry, VkClearDepthStencilCreate(1, 0));
+        RenderTargetAddTarget(&Builder, &Result->GBufferPositionEntry, VkClearColorCreate(0, 0, 0, 0));
+        RenderTargetAddTarget(&Builder, &Result->GBufferNormalEntry, VkClearColorCreate(0, 0, 0, 0));
+        RenderTargetAddTarget(&Builder, &Result->GBufferColorEntry, VkClearColorCreate(0, 0, 0, 1));
+        RenderTargetAddTarget(&Builder, &Result->OutColorEntry, VkClearColorCreate(0, 0, 0, 1));
+        RenderTargetAddTarget(&Builder, &Result->DepthEntry, VkClearDepthStencilCreate(1, 0));
                             
         vk_render_pass_builder RpBuilder = VkRenderPassBuilderBegin(&DemoState->TempArena);
 
-        u32 GBufferPositionId = VkRenderPassAttachmentAdd(&RpBuilder, Result.GBufferPositionEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+        u32 GBufferPositionId = VkRenderPassAttachmentAdd(&RpBuilder, Result->GBufferPositionEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                           VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
                                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        u32 GBufferNormalId = VkRenderPassAttachmentAdd(&RpBuilder, Result.GBufferNormalEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+        u32 GBufferNormalId = VkRenderPassAttachmentAdd(&RpBuilder, Result->GBufferNormalEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                         VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
                                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        u32 GBufferColorId = VkRenderPassAttachmentAdd(&RpBuilder, Result.GBufferColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+        u32 GBufferColorId = VkRenderPassAttachmentAdd(&RpBuilder, Result->GBufferColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                        VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
                                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-        u32 OutColorId = VkRenderPassAttachmentAdd(&RpBuilder, Result.OutColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+        u32 OutColorId = VkRenderPassAttachmentAdd(&RpBuilder, Result->OutColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                    VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        u32 DepthId = VkRenderPassAttachmentAdd(&RpBuilder, Result.DepthEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+        u32 DepthId = VkRenderPassAttachmentAdd(&RpBuilder, Result->DepthEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                 VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
                                                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
@@ -68,26 +108,7 @@ inline deferred_state DeferredCreate(renderer_create_info CreateInfo, VkDescript
         VkRenderPassDepthRefAdd(&RpBuilder, DepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         VkRenderPassSubPassEnd(&RpBuilder);
 
-        Result.RenderTarget = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
-    }
-
-    // NOTE: GBuffer Descriptor Set
-    {
-        {
-            vk_descriptor_layout_builder Builder = VkDescriptorLayoutBegin(&Result.GBufferDescLayout);
-            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-            VkDescriptorLayoutEnd(RenderState->Device, &Builder);
-        }
-
-        Result.GBufferDescriptor = VkDescriptorSetAllocate(RenderState->Device, RenderState->DescriptorPool, Result.GBufferDescLayout);
-        VkDescriptorImageWrite(&RenderState->DescriptorManager, Result.GBufferDescriptor, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               Result.GBufferPositionEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        VkDescriptorImageWrite(&RenderState->DescriptorManager, Result.GBufferDescriptor, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               Result.GBufferNormalEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        VkDescriptorImageWrite(&RenderState->DescriptorManager, Result.GBufferDescriptor, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               Result.GBufferColorEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        Result->RenderTarget = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
     }
     
     // NOTE: Create PSOs
@@ -119,13 +140,13 @@ inline deferred_state DeferredCreate(renderer_create_info CreateInfo, VkDescript
                                          VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
 
             VkDescriptorSetLayout DescriptorLayouts[] =
-            {
-                CreateInfo.MaterialDescLayout,
-                CreateInfo.SceneDescLayout,
-            };
+                {
+                    CreateInfo.MaterialDescLayout,
+                    CreateInfo.SceneDescLayout,
+                };
             
-            Result.GBufferPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
-                                                          Result.RenderTarget.RenderPass, 0, DescriptorLayouts, ArrayCount(DescriptorLayouts));
+            Result->GBufferPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
+                                                           Result->RenderTarget.RenderPass, 0, DescriptorLayouts, ArrayCount(DescriptorLayouts));
         }
 
         // TODO: Handle correctly lights which contain the camera
@@ -151,14 +172,14 @@ inline deferred_state DeferredCreate(renderer_create_info CreateInfo, VkDescript
                                          VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
 
             VkDescriptorSetLayout DescriptorLayouts[] =
-            {
-                CreateInfo.MaterialDescLayout,
-                CreateInfo.SceneDescLayout,
-                Result.GBufferDescLayout,
-            };
+                {
+                    CreateInfo.MaterialDescLayout,
+                    CreateInfo.SceneDescLayout,
+                    Result->GBufferDescLayout,
+                };
             
-            Result.PointLightPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
-                                                             Result.RenderTarget.RenderPass, 1, DescriptorLayouts, ArrayCount(DescriptorLayouts));
+            Result->PointLightPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
+                                                              Result->RenderTarget.RenderPass, 1, DescriptorLayouts, ArrayCount(DescriptorLayouts));
         }
 
         // NOTE: Directional Light PSO
@@ -182,18 +203,16 @@ inline deferred_state DeferredCreate(renderer_create_info CreateInfo, VkDescript
                                          VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
 
             VkDescriptorSetLayout DescriptorLayouts[] =
-            {
-                CreateInfo.MaterialDescLayout,
-                CreateInfo.SceneDescLayout,
-                Result.GBufferDescLayout,
-            };
+                {
+                    CreateInfo.MaterialDescLayout,
+                    CreateInfo.SceneDescLayout,
+                    Result->GBufferDescLayout,
+                };
             
-            Result.DirectionalLightPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
-                                                                   Result.RenderTarget.RenderPass, 1, DescriptorLayouts, ArrayCount(DescriptorLayouts));
+            Result->DirectionalLightPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
+                                                                    Result->RenderTarget.RenderPass, 1, DescriptorLayouts, ArrayCount(DescriptorLayouts));
         }
     }
-
-    return Result;
 }
 
 inline void DeferredAddMeshes(deferred_state* DeferredState, render_mesh* QuadMesh, render_mesh* SphereMesh)

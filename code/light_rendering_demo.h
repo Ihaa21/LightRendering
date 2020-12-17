@@ -26,10 +26,10 @@
     
  */
 
-//#define FORWARD_RENDERING
+#define FORWARD_RENDERING
 //#define DEFERRED_RENDERING
 //#define TILED_FORWARD_RENDERING
-#define TILED_DEFERRED_RENDERING
+//#define TILED_DEFERRED_RENDERING
 
 struct directional_light
 {
@@ -79,6 +79,7 @@ struct render_mesh
     u32 NumIndices;
 };
 
+struct render_scene;
 struct renderer_create_info
 {
     u32 Width;
@@ -87,6 +88,7 @@ struct renderer_create_info
 
     VkDescriptorSetLayout MaterialDescLayout;
     VkDescriptorSetLayout SceneDescLayout;
+    render_scene* Scene;
 };
 
 #include "forward.h"
@@ -136,6 +138,7 @@ struct demo_state
     VkSampler AnisoSampler;
 
     // NOTE: Render Target Entries
+    VkFormat SwapChainFormat;
     render_target_entry SwapChainEntry;
     render_target CopyToSwapTarget;
     VkDescriptorSetLayout CopyToSwapDescLayout;

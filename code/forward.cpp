@@ -1,30 +1,51 @@
 
-inline forward_state ForwardCreate(renderer_create_info CreateInfo, VkDescriptorSet* OutputRtSet)
+inline void ForwardSwapChainChange(forward_state* State, u32 Width, u32 Height, VkFormat ColorFormat, render_scene* Scene,
+                                   VkDescriptorSet* OutputRtSet)
 {
-    forward_state Result = {};
+    b32 ReCreate = State->RenderTargetArena.Used != 0;
+    VkArenaClear(&State->RenderTargetArena);
 
-    Result.ColorEntry = RenderTargetEntryCreate(&RenderState->GpuArena, CreateInfo.Width, CreateInfo.Height,
-                                                CreateInfo.ColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                                VK_IMAGE_ASPECT_COLOR_BIT);
-    Result.DepthEntry = RenderTargetEntryCreate(&RenderState->GpuArena, CreateInfo.Width, CreateInfo.Height,
-                                                VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                                                VK_IMAGE_ASPECT_DEPTH_BIT);
+    // NOTE: Render Target Data
+    {
+        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, ColorFormat,
+                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
+                                  &State->ColorEntry);
+        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_D32_SFLOAT,
+                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, &State->DepthEntry);
 
-    VkDescriptorImageWrite(&RenderState->DescriptorManager, *OutputRtSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                           Result.ColorEntry.View, DemoState->LinearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    
+        if (ReCreate)
+        {
+            RenderTargetUpdateEntries(&DemoState->TempArena, &State->RenderTarget);
+        }
+
+        VkDescriptorImageWrite(&RenderState->DescriptorManager, *OutputRtSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                               State->ColorEntry.View, DemoState->LinearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+        
+    VkDescriptorManagerFlush(RenderState->Device, &RenderState->DescriptorManager);
+}
+
+inline void ForwardCreate(renderer_create_info CreateInfo, VkDescriptorSet* OutputRtSet, forward_state* Result)
+{
+    *Result = {};
+
+    u64 HeapSize = GigaBytes(1);
+    Result->RenderTargetArena = VkLinearArenaCreate(VkMemoryAllocate(RenderState->Device, RenderState->LocalMemoryId, HeapSize), HeapSize);
+
+    ForwardSwapChainChange(Result, CreateInfo.Width, CreateInfo.Height, CreateInfo.ColorFormat, CreateInfo.Scene, OutputRtSet);
+
     // NOTE: RT
     {
         render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, CreateInfo.Width, CreateInfo.Height);
-        RenderTargetAddTarget(&Builder, &Result.ColorEntry, VkClearColorCreate(0, 0, 0, 1));
-        RenderTargetAddTarget(&Builder, &Result.DepthEntry, VkClearDepthStencilCreate(1, 0));
+        RenderTargetAddTarget(&Builder, &Result->ColorEntry, VkClearColorCreate(0, 0, 0, 1));
+        RenderTargetAddTarget(&Builder, &Result->DepthEntry, VkClearDepthStencilCreate(1, 0));
                             
         vk_render_pass_builder RpBuilder = VkRenderPassBuilderBegin(&DemoState->TempArena);
 
-        u32 ColorId = VkRenderPassAttachmentAdd(&RpBuilder, Result.ColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+        u32 ColorId = VkRenderPassAttachmentAdd(&RpBuilder, Result->ColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                 VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        u32 DepthId = VkRenderPassAttachmentAdd(&RpBuilder, Result.DepthEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+        u32 DepthId = VkRenderPassAttachmentAdd(&RpBuilder, Result->DepthEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                 VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
                                                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
@@ -33,7 +54,7 @@ inline forward_state ForwardCreate(renderer_create_info CreateInfo, VkDescriptor
         VkRenderPassDepthRefAdd(&RpBuilder, DepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         VkRenderPassSubPassEnd(&RpBuilder);
 
-        Result.RenderTarget = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
+        Result->RenderTarget = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
     }
     
     // NOTE: Create PSO
@@ -65,12 +86,10 @@ inline forward_state ForwardCreate(renderer_create_info CreateInfo, VkDescriptor
                 CreateInfo.SceneDescLayout,
             };
             
-            Result.Pipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
-                                                   Result.RenderTarget.RenderPass, 0, DescriptorLayouts, ArrayCount(DescriptorLayouts));
+            Result->Pipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
+                                                    Result->RenderTarget.RenderPass, 0, DescriptorLayouts, ArrayCount(DescriptorLayouts));
         }
     }
-
-    return Result;
 }
 
 inline void ForwardRender(vk_commands Commands, forward_state* ForwardState, render_scene* Scene)
