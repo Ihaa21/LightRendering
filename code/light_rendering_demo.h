@@ -26,10 +26,10 @@
     
  */
 
-#define FORWARD_RENDERING
+//#define FORWARD_RENDERING
 //#define DEFERRED_RENDERING
 //#define TILED_FORWARD_RENDERING
-//#define TILED_DEFERRED_RENDERING
+#define TILED_DEFERRED_RENDERING
 
 struct directional_light
 {

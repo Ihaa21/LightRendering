@@ -57,7 +57,7 @@ void main()
     for (int i = 0; i < SceneBuffer.NumPointLights; ++i)
     {
         point_light CurrLight = PointLights[i];
-        vec3 LightDir = normalize(CurrLight.Pos - SurfacePos);
+        vec3 LightDir = normalize(SurfacePos - CurrLight.Pos);
         Color += BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, LightDir, PointLightAttenuate(SurfacePos, CurrLight));
     }
 

@@ -46,13 +46,13 @@ vec3 BlinnPhongLighting(vec3 CameraView,
     
     // NOTE: Diffuse Light
     {
-        float DiffuseIntensity = max(dot(LightDir, SurfaceNormal), 0.0);
+        float DiffuseIntensity = max(dot(-LightDir, SurfaceNormal), 0.0);
         LightIntensity += DiffuseIntensity;
     }
 
     // NOTE: Specular Light
     {
-        vec3 HalfwayDir = normalize(LightDir + CameraView);
+        vec3 HalfwayDir = normalize(-LightDir + CameraView);
         float SpecularIntensity = pow(max(dot(SurfaceNormal, HalfwayDir), 0.0), SurfaceSpecularPower);
         LightIntensity += SpecularIntensity;
     }

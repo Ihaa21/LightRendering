@@ -410,7 +410,7 @@ DEMO_MAIN_LOOP(MainLoop)
             ScenePointLightAdd(Scene, V3(0.0f, -1.0f, 1.0f), V3(0.0f, 1.0f, 1.0f), 1);
             ScenePointLightAdd(Scene, V3(-1.0f, 0.0f, -1.0f), V3(0.0f, 0.0f, 1.0f), 1);
             
-            SceneDirectionalLightSet(Scene, Normalize(V3(0.0f, 0.0f, -1.0f)), 0.3f*V3(1.0f, 1.0f, 1.0f), V3(0, 0, 0)); //V3(0.4f, 0.4f, 0.4f));
+            SceneDirectionalLightSet(Scene, Normalize(V3(0.0f, 0.0f, 1.0f)), 0.3f*V3(1.0f, 1.0f, 1.0f), V3(0, 0, 0)); //V3(0.4f, 0.4f, 0.4f));
         }        
         
         // NOTE: Push Point Lights

@@ -107,7 +107,7 @@ void main()
     vec3 View = normalize(CameraPos - SurfacePos);
 
     point_light CurrLight = PointLights[InInstanceId];
-    vec3 LightDir = normalize(CurrLight.Pos - SurfacePos);
+    vec3 LightDir = normalize(SurfacePos - CurrLight.Pos);
     OutColor = vec4(BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, LightDir, PointLightAttenuate(SurfacePos, CurrLight)), 1);
 }
 

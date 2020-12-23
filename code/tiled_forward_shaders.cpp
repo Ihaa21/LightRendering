@@ -135,10 +135,10 @@ void main()
     {
         // NOTE: Compute four corner points of tile
         vec3 CameraPos = vec3(0);
-        vec4 BotLeft = vec4((GridPos + vec2(0, 0)) * vec2(TILE_DIM_IN_PIXELS), 1, 1);
-        vec4 BotRight = vec4((GridPos + vec2(1, 0)) * vec2(TILE_DIM_IN_PIXELS), 1, 1);
-        vec4 TopLeft = vec4((GridPos + vec2(0, 1)) * vec2(TILE_DIM_IN_PIXELS), 1, 1);
-        vec4 TopRight = vec4((GridPos + vec2(1, 1)) * vec2(TILE_DIM_IN_PIXELS), 1, 1);
+        vec4 BotLeft = vec4((GridPos + vec2(0, 0)) * vec2(TILE_DIM_IN_PIXELS), 0, 1);
+        vec4 BotRight = vec4((GridPos + vec2(1, 0)) * vec2(TILE_DIM_IN_PIXELS), 0, 1);
+        vec4 TopLeft = vec4((GridPos + vec2(0, 1)) * vec2(TILE_DIM_IN_PIXELS), 0, 1);
+        vec4 TopRight = vec4((GridPos + vec2(1, 1)) * vec2(TILE_DIM_IN_PIXELS), 0, 1);
      
         // NOTE: Transform corner points to far plane in view space (we assume a counter clock wise winding order)
         BotLeft = ScreenToView(InverseProjection, ScreenSize, BotLeft);
@@ -239,14 +239,14 @@ void main()
     MinDepth = ClipToView(InverseProjection, vec4(0, 0, MinDepth, 1)).z;
     MaxDepth = ClipToView(InverseProjection, vec4(0, 0, MaxDepth, 1)).z;
 
-    float NearClipDepth = ClipToView(InverseProjection, vec4(0, 0, 0, 1)).z;
-    plane MinPlane = { vec3(0, 0, 1), MinDepth };
+    float NearClipDepth = ClipToView(InverseProjection, vec4(0, 0, 1, 1)).z;
+    plane MinPlane = { vec3(0, 0, 1), MaxDepth };
     
     // NOTE: Cull lights against tiles frustum (each thread culls one light at a time)
     for (uint LightId = gl_LocalInvocationIndex; LightId < SceneBuffer.NumPointLights; LightId += NumThreadsPerGroup)
     {
         point_light Light = PointLights[LightId];
-        if (SphereInsideFrustum(Light.Pos, Light.MaxDistance, SharedFrustum, NearClipDepth, MaxDepth))
+        if (SphereInsideFrustum(Light.Pos, Light.MaxDistance, SharedFrustum, NearClipDepth, MinDepth))
         {
             LightAppendTransparent(LightId);
 
@@ -358,7 +358,7 @@ void main()
     {
         uint LightId = LightIndexList_O[LightIndexMetaData.x + i];
         point_light CurrLight = PointLights[LightId];
-        vec3 LightDir = normalize(CurrLight.Pos - SurfacePos);
+        vec3 LightDir = normalize(SurfacePos - CurrLight.Pos);
         Color += BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, LightDir, PointLightAttenuate(SurfacePos, CurrLight));
     }
 
