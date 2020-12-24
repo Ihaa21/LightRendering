@@ -350,10 +350,6 @@ void main()
     ivec2 PixelPos = ivec2(gl_FragCoord.xy);
     ivec2 GridPos = PixelPos / ivec2(TILE_DIM_IN_PIXELS);
     uvec2 LightIndexMetaData = imageLoad(LightGrid_O, GridPos).xy; // NOTE: Stores the pointer + # of elements
-
-    // TODO: REMOVE
-    //OutColor = vec4(vec2(LightIndexMetaData), 1, 1);
-
     for (int i = 0; i < LightIndexMetaData.y; ++i)
     {
         uint LightId = LightIndexList_O[LightIndexMetaData.x + i];
@@ -365,7 +361,7 @@ void main()
     // NOTE: Calculate lighting for directional lights
     {
         Color += BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, DirectionalLight.Dir, DirectionalLight.Color);
-        Color += DirectionalLight.AmbientLight;
+        Color += SurfaceColor * DirectionalLight.AmbientLight;
     }
 
     OutColor = vec4(Color, 1);

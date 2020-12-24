@@ -10,16 +10,17 @@ inline void DeferredSwapChainChange(deferred_state* State, u32 Width, u32 Height
         // TODO: We need sampled bit as well as input attachment? Doesn't one imply the other?
         VkImageLayout GBufferLayout = VkImageLayout(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                  GBufferLayout, VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferPositionEntry);
+                                  GBufferLayout, VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferPositionImage, &State->GBufferPositionEntry);
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R16G16B16A16_SNORM, GBufferLayout,
-                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferNormalEntry);
+                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferNormalImage, &State->GBufferNormalEntry);
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R8G8B8A8_UNORM, GBufferLayout,
-                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferColorEntry);
+                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferColorImage, &State->GBufferColorEntry);
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, ColorFormat,
                                   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
-                                  &State->OutColorEntry);
+                                  &State->OutColorImage, &State->OutColorEntry);
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_D32_SFLOAT,
-                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, &State->DepthEntry);
+                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT,
+                                  &State->DepthImage, &State->DepthEntry);
 
         if (ReCreate)
         {
@@ -222,7 +223,7 @@ inline void DeferredAddMeshes(deferred_state* DeferredState, render_mesh* QuadMe
 
 inline void DeferredRender(vk_commands Commands, deferred_state* DeferredState, render_scene* Scene)
 {
-    RenderTargetRenderPassBegin(&DeferredState->RenderTarget, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
+    RenderTargetPassBegin(&DeferredState->RenderTarget, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
 
     //
     // NOTE: Draw Meshes
@@ -303,5 +304,5 @@ inline void DeferredRender(vk_commands Commands, deferred_state* DeferredState, 
         vkCmdDrawIndexed(Commands.Buffer, DeferredState->QuadMesh->NumIndices, 1, 0, 0, 0);
     }
     
-    RenderTargetRenderPassEnd(Commands);        
+    RenderTargetPassEnd(Commands);        
 }

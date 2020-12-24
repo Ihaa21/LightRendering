@@ -64,7 +64,7 @@ void main()
     // NOTE: Calculate lighting for directional lights
     {
         Color += BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, DirectionalLight.Dir, DirectionalLight.Color);
-        Color += DirectionalLight.AmbientLight;
+        Color += DirectionalLight.AmbientLight * SurfaceColor;
     }
 
     OutColor = vec4(Color, 1);

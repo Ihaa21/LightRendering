@@ -18,10 +18,10 @@ inline void TiledForwardSwapChainChange(tiled_forward_state* State, u32 Width, u
     {
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, ColorFormat,
                                   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->ColorEntry);
+                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->ColorImage, &State->ColorEntry);
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_D32_SFLOAT,
                                   VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                  VK_IMAGE_ASPECT_DEPTH_BIT, &State->DepthEntry);
+                                  VK_IMAGE_ASPECT_DEPTH_BIT, &State->DepthImage, &State->DepthEntry);
 
         if (ReCreate)
         {
@@ -52,18 +52,18 @@ inline void TiledForwardSwapChainChange(tiled_forward_state* State, u32 Width, u
         
         State->GridFrustums = VkBufferCreate(RenderState->Device, &State->RenderTargetArena, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                              sizeof(frustum) * NumTilesX * NumTilesY);
-        State->LightGrid_O = VkImage2dCreate(RenderState->Device, &State->RenderTargetArena, NumTilesX, NumTilesY, VK_FORMAT_R32G32_UINT,
-                                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+        State->LightGrid_O = VkImageCreate(RenderState->Device, &State->RenderTargetArena, NumTilesX, NumTilesY, VK_FORMAT_R32G32_UINT,
+                                           VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
         State->LightIndexList_O = VkBufferCreate(RenderState->Device, &State->RenderTargetArena, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                  sizeof(u32) * MAX_LIGHTS_PER_TILE * NumTilesX * NumTilesY);
-        State->LightGrid_T = VkImage2dCreate(RenderState->Device, &State->RenderTargetArena, NumTilesX, NumTilesY, VK_FORMAT_R32G32_UINT,
-                                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+        State->LightGrid_T = VkImageCreate(RenderState->Device, &State->RenderTargetArena, NumTilesX, NumTilesY, VK_FORMAT_R32G32_UINT,
+                                           VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
         State->LightIndexList_T = VkBufferCreate(RenderState->Device, &State->RenderTargetArena, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                  sizeof(u32) * MAX_LIGHTS_PER_TILE * NumTilesX * NumTilesY);
 
         VkDescriptorBufferWrite(&RenderState->DescriptorManager, State->TiledForwardDescriptor, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, State->GridFrustums);
         VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledForwardDescriptor, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               State->DepthEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                               State->DepthEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
         VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledForwardDescriptor, 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                State->LightGrid_O.View, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL);
         VkDescriptorBufferWrite(&RenderState->DescriptorManager, State->TiledForwardDescriptor, 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, State->LightIndexList_O);
@@ -175,12 +175,16 @@ inline void TiledForwardCreate(renderer_create_info CreateInfo, VkDescriptorSet*
 
                 u32 DepthId = VkRenderPassAttachmentAdd(&RpBuilder, Result->DepthEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
                                                         VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+                                                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
 
                 VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
                 VkRenderPassDepthRefAdd(&RpBuilder, DepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
                 VkRenderPassSubPassEnd(&RpBuilder);
 
+                VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                                       VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
+                
                 Result->DepthPrePass = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
             }
 
@@ -238,12 +242,15 @@ inline void TiledForwardCreate(renderer_create_info CreateInfo, VkDescriptorSet*
                                                         VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
                                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 u32 DepthId = VkRenderPassAttachmentAdd(&RpBuilder, Result->DepthEntry.Format, VK_ATTACHMENT_LOAD_OP_LOAD,
-                                                        VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+                                                        VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                                                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+
+                VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
 
                 VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
                 VkRenderPassColorRefAdd(&RpBuilder, ColorId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-                VkRenderPassDepthRefAdd(&RpBuilder, DepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+                VkRenderPassDepthRefAdd(&RpBuilder, DepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
                 VkRenderPassSubPassEnd(&RpBuilder);
 
                 Result->ColorPass = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
@@ -264,7 +271,7 @@ inline void TiledForwardCreate(renderer_create_info CreateInfo, VkDescriptorSet*
                 VkPipelineVertexBindingEnd(&Builder);
 
                 VkPipelineInputAssemblyAdd(&Builder, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_FALSE);
-                VkPipelineDepthStateAdd(&Builder, VK_TRUE, VK_TRUE, VK_COMPARE_OP_EQUAL);
+                VkPipelineDepthStateAdd(&Builder, VK_TRUE, VK_FALSE, VK_COMPARE_OP_EQUAL);
                 
                 // NOTE: Set the blending state
                 VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
@@ -303,7 +310,7 @@ inline void TiledForwardRender(vk_commands Commands, tiled_forward_state* State,
     }
     
     // NOTE: Depth Pre Pass
-    RenderTargetRenderPassBegin(&State->DepthPrePass, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
+    RenderTargetPassBegin(&State->DepthPrePass, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
     {
         vkCmdBindPipeline(Commands.Buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, State->DepthPrePassPipeline->Handle);
         {
@@ -326,15 +333,7 @@ inline void TiledForwardRender(vk_commands Commands, tiled_forward_state* State,
             vkCmdDrawIndexed(Commands.Buffer, CurrMesh->NumIndices, 1, 0, 0, InstanceId);
         }
     }
-    RenderTargetRenderPassEnd(Commands);
-
-    // TODO: Do we have to do this if we instead do the transition in the render pass?
-    // NOTE: Transition depth buffer for reading
-    VkBarrierImageAdd(&RenderState->BarrierManager, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                      VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                      VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                      VK_IMAGE_ASPECT_DEPTH_BIT, State->DepthEntry.Image);
-    VkBarrierManagerFlush(&RenderState->BarrierManager, Commands.Buffer);
+    RenderTargetPassEnd(Commands);
     
     // NOTE: Light Culling Pass
     {
@@ -350,9 +349,9 @@ inline void TiledForwardRender(vk_commands Commands, tiled_forward_state* State,
         u32 DispatchY = CeilU32(f32(RenderState->WindowHeight) / f32(TILE_SIZE_IN_PIXELS));
         vkCmdDispatch(Commands.Buffer, DispatchX, DispatchY, 1);
     }
-
+    
     // NOTE: Color Pass
-    RenderTargetRenderPassBegin(&State->ColorPass, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
+    RenderTargetPassBegin(&State->ColorPass, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
     {
         vkCmdBindPipeline(Commands.Buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, State->TiledForwardPipeline->Handle);
         {
@@ -385,5 +384,5 @@ inline void TiledForwardRender(vk_commands Commands, tiled_forward_state* State,
             vkCmdDrawIndexed(Commands.Buffer, CurrMesh->NumIndices, 1, 0, 0, InstanceId);
         }
     }
-    RenderTargetRenderPassEnd(Commands);
+    RenderTargetPassEnd(Commands);
 }

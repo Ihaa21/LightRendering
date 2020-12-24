@@ -9,9 +9,10 @@ inline void ForwardSwapChainChange(forward_state* State, u32 Width, u32 Height, 
     {
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, ColorFormat,
                                   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
-                                  &State->ColorEntry);
+                                  &State->ColorImage, &State->ColorEntry);
         RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_D32_SFLOAT,
-                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, &State->DepthEntry);
+                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT,
+                                  &State->DepthImage, &State->DepthEntry);
 
         if (ReCreate)
         {
@@ -94,7 +95,7 @@ inline void ForwardCreate(renderer_create_info CreateInfo, VkDescriptorSet* Outp
 
 inline void ForwardRender(vk_commands Commands, forward_state* ForwardState, render_scene* Scene)
 {
-    RenderTargetRenderPassBegin(&ForwardState->RenderTarget, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
+    RenderTargetPassBegin(&ForwardState->RenderTarget, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
     
     // NOTE: Draw Meshes
     {
@@ -129,5 +130,5 @@ inline void ForwardRender(vk_commands Commands, forward_state* ForwardState, ren
         }
     }
 
-    RenderTargetRenderPassEnd(Commands);        
+    RenderTargetPassEnd(Commands);        
 }

@@ -17,10 +17,15 @@ struct tiled_deferred_state
     vk_linear_arena RenderTargetArena;
     
     // NOTE: GBuffer
+    VkImage GBufferPositionImage;
     render_target_entry GBufferPositionEntry;
+    VkImage GBufferNormalImage;
     render_target_entry GBufferNormalEntry;
+    VkImage GBufferColorImage;
     render_target_entry GBufferColorEntry;
+    VkImage DepthImage;
     render_target_entry DepthEntry;
+    VkImage OutColorImage;
     render_target_entry OutColorEntry;
     render_target GBufferPass;
     render_target LightingPass;
