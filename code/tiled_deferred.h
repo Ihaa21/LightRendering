@@ -12,23 +12,51 @@ struct tiled_deferred_globals
     u32 GridSizeY;
 };
 
-struct tiled_deferred_state
+struct tiled_deferred_msaa_targets
 {
-    vk_linear_arena RenderTargetArena;
-    
-    // NOTE: GBuffer
     VkImage GBufferPositionImage;
     render_target_entry GBufferPositionEntry;
     VkImage GBufferNormalImage;
     render_target_entry GBufferNormalEntry;
     VkImage GBufferColorImage;
     render_target_entry GBufferColorEntry;
+    VkImage MsaaDepthImage;
+    render_target_entry MsaaDepthEntry;
+    
+    VkImage ResolvedDepthImage;
+    render_target_entry ResolvedDepthEntry;
+    VkImage ResolvedColorImage;
+    render_target_entry ResolvedColorEntry;
+};
+
+struct tiled_deferred_non_msaa_targets
+{
+    VkImage GBufferPositionImage;
+    render_target_entry GBufferPositionEntry;
+    VkImage GBufferNormalImage;
+    render_target_entry GBufferNormalEntry;
+    VkImage GBufferColorImage;
+    render_target_entry GBufferColorEntry;
+    
     VkImage DepthImage;
     render_target_entry DepthEntry;
     VkImage OutColorImage;
     render_target_entry OutColorEntry;
+};
+
+struct tiled_deferred_state
+{
+    vk_linear_arena RenderTargetArena;
+
+    b32 IsMsaaEnabled;
+    tiled_deferred_msaa_targets MsaaTargets;
+    tiled_deferred_non_msaa_targets NonMsaaTargets;
     render_target GBufferPass;
     render_target LightingPass;
+    
+    // NOTE: Resolve Depth Data
+    VkDescriptorSet ResolveDepthDescriptor;
+    vk_pipeline* ResolveDepthPipeline;
 
     // NOTE: Global data
     VkBuffer TiledDeferredGlobals;

@@ -114,11 +114,17 @@ layout(set = 0, binding = 7) buffer light_index_counter_transparent
     uint LightIndexCounter_T;
 };
 
-// NOTE: GBuffer Data
+// NOTE: GBuffer Data Non MSAA
 layout(set = 0, binding = 8) uniform sampler2D GBufferPositionTexture;
 layout(set = 0, binding = 9) uniform sampler2D GBufferNormalTexture;
 layout(set = 0, binding = 10) uniform sampler2D GBufferColorTexture;
 layout(set = 0, binding = 11) uniform sampler2D GBufferDepthTexture;
+
+// NOTE: GBuffer Data MSAA
+layout(set = 0, binding = 12) uniform sampler2DMS MsaaGBufferPositionTexture;
+layout(set = 0, binding = 13) uniform sampler2DMS MsaaGBufferNormalTexture;
+layout(set = 0, binding = 14) uniform sampler2DMS MsaaGBufferColorTexture;
+layout(set = 0, binding = 15) uniform sampler2DMS MsaaGBufferDepthTexture;
 
 SCENE_DESCRIPTOR_LAYOUT(1)
 MATERIAL_DESCRIPTOR_LAYOUT(2)
@@ -310,6 +316,7 @@ layout(location = 2) in vec2 InUv;
 layout(location = 0) out vec3 OutViewPos;
 layout(location = 1) out vec3 OutViewNormal;
 layout(location = 2) out vec2 OutUv;
+layout(location = 3) out flat uint OutInstanceId;
 
 void main()
 {
@@ -319,6 +326,7 @@ void main()
     OutViewPos = (Entry.WVTransform * vec4(InPos, 1)).xyz;
     OutViewNormal = (Entry.WVTransform * vec4(InNormal, 0)).xyz;
     OutUv = InUv;
+    OutInstanceId = gl_InstanceIndex;
 }
 
 #endif
@@ -332,6 +340,7 @@ void main()
 layout(location = 0) in vec3 InViewPos;
 layout(location = 1) in vec3 InViewNormal;
 layout(location = 2) in vec2 InUv;
+layout(location = 3) in flat uint InInstanceId;
 
 layout(location = 0) out vec4 OutViewPos;
 layout(location = 1) out vec4 OutViewNormal;
@@ -339,7 +348,7 @@ layout(location = 2) out vec4 OutColor;
 
 void main()
 {
-    OutViewPos = vec4(InViewPos, 0);
+    OutViewPos = vec4(InViewPos, uintBitsToFloat(InInstanceId));
     // TODO: Add normal mapping
     OutViewNormal = vec4(normalize(InViewNormal), 0);
     OutColor = texture(ColorTexture, InUv);
@@ -366,39 +375,104 @@ void main()
 // NOTE: Tiled Deferred Lighting
 //
 
+vec3 CalcSampleLighting(ivec2 PixelPos, uvec2 LightIndexMetaData, vec3 CameraPos, vec3 SurfacePos, vec3 SurfaceNormal, vec3 SurfaceColor)
+{
+    vec3 Result = vec3(0);
+    
+    vec3 View = normalize(CameraPos - SurfacePos);
+
+    // NOTE: Calculate lighting for point lights
+    for (int i = 0; i < LightIndexMetaData.y; ++i)
+    {
+        uint LightId = LightIndexList_O[LightIndexMetaData.x + i];
+        point_light CurrLight = PointLights[LightId];
+        vec3 LightDir = normalize(SurfacePos - CurrLight.Pos);
+        Result += BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, LightDir, PointLightAttenuate(SurfacePos, CurrLight));
+    }
+
+    // NOTE: Calculate lighting for directional lights
+    {
+        Result += BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, DirectionalLight.Dir, DirectionalLight.Color);
+        Result += DirectionalLight.AmbientLight * SurfaceColor;
+    }
+
+    return Result;
+}
+
 #if TILED_DEFERRED_LIGHTING_FRAG
 
 layout(location = 0) out vec4 OutColor;
+
+vec3 CalcSampleLighting(ivec2 PixelPos, uvec2 LightIndexMetaData, vec3 CameraPos)
+{
+    vec3 SurfacePos = texelFetch(GBufferPositionTexture, PixelPos, 0).xyz;
+    vec3 SurfaceNormal = texelFetch(GBufferNormalTexture, PixelPos, 0).xyz;
+    vec3 SurfaceColor = texelFetch(GBufferColorTexture, PixelPos, 0).rgb;
+    vec3 Result = CalcSampleLighting(PixelPos, LightIndexMetaData, CameraPos, SurfacePos, SurfaceNormal, SurfaceColor);
+    return Result;
+}
+
+void main()
+{
+    vec3 CameraPos = vec3(0, 0, 0);
+    ivec2 PixelPos = ivec2(gl_FragCoord.xy);
+
+    vec3 Color = vec3(0);
+
+    ivec2 GridPos = PixelPos / ivec2(TILE_DIM_IN_PIXELS);
+    uvec2 LightIndexMetaData = imageLoad(LightGrid_O, GridPos).xy; // NOTE: Stores the pointer + # of elements
+    Color += CalcSampleLighting(PixelPos, LightIndexMetaData, CameraPos);
+
+    OutColor = vec4(Color, 1);
+}
+
+#endif
+
+#if TILED_DEFERRED_LIGHTING_MSAA_FRAG
+
+layout(location = 0) out vec4 OutColor;
+
+vec3 CalcSampleLighting(ivec2 PixelPos, uvec2 LightIndexMetaData, vec3 CameraPos, int SampleId)
+{
+    vec3 SurfacePos = texelFetch(MsaaGBufferPositionTexture, PixelPos, SampleId).xyz;
+    vec3 SurfaceNormal = texelFetch(MsaaGBufferNormalTexture, PixelPos, SampleId).xyz;
+    vec3 SurfaceColor = texelFetch(MsaaGBufferColorTexture, PixelPos, SampleId).rgb;
+    vec3 Result = CalcSampleLighting(PixelPos, LightIndexMetaData, CameraPos, SurfacePos, SurfaceNormal, SurfaceColor);
+    return Result;
+}
 
 void main()
 {
     vec3 CameraPos = vec3(0, 0, 0);
     ivec2 PixelPos = ivec2(gl_FragCoord.xy);
     
-    vec3 SurfacePos = texelFetch(GBufferPositionTexture, PixelPos, 0).xyz;
-    vec3 SurfaceNormal = texelFetch(GBufferNormalTexture, PixelPos, 0).xyz;
-    vec3 SurfaceColor = texelFetch(GBufferColorTexture, PixelPos, 0).rgb;
-    vec3 View = normalize(CameraPos - SurfacePos);
+    // NOTE: Figure out which pixels need multisampling and which ones need 1 sample
+    // NOTE: Right now we only find edges for pixels that are different instance ids
+    uint MaterialId = floatBitsToInt(texelFetch(MsaaGBufferPositionTexture, PixelPos, 0).w);
+    bool RequireMsaa = false;
+    int NumSamples = textureSamples(MsaaGBufferPositionTexture);
+    for (int SampleId = 1; SampleId < NumSamples; ++SampleId)
+    {
+        uint SampleMaterialId = floatBitsToInt(texelFetch(MsaaGBufferPositionTexture, PixelPos, SampleId).w);
+        RequireMsaa = RequireMsaa || SampleMaterialId != MaterialId;
+    }
 
     vec3 Color = vec3(0);
 
-    // NOTE: Calculate lighting for point lights
     ivec2 GridPos = PixelPos / ivec2(TILE_DIM_IN_PIXELS);
     uvec2 LightIndexMetaData = imageLoad(LightGrid_O, GridPos).xy; // NOTE: Stores the pointer + # of elements
-    for (int i = 0; i < LightIndexMetaData.y; ++i)
+    Color += CalcSampleLighting(PixelPos, LightIndexMetaData, CameraPos, 0);
+    // TODO: This is very thread inefficeint, work on this in a separate sample to optimize tiled deferred
+    if (RequireMsaa)
     {
-        uint LightId = LightIndexList_O[LightIndexMetaData.x + i];
-        point_light CurrLight = PointLights[LightId];
-        vec3 LightDir = normalize(SurfacePos - CurrLight.Pos);
-        Color += BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, LightDir, PointLightAttenuate(SurfacePos, CurrLight));
-    }
+        for (int SampleId = 1; SampleId < NumSamples; ++SampleId)
+        {
+            Color += CalcSampleLighting(PixelPos, LightIndexMetaData, CameraPos, SampleId);
+        }
 
-    // NOTE: Calculate lighting for directional lights
-    {
-        Color += BlinnPhongLighting(View, SurfaceColor, SurfaceNormal, 32, DirectionalLight.Dir, DirectionalLight.Color);
-        Color += DirectionalLight.AmbientLight * SurfaceColor;
+        Color *= (1.0f / float(NumSamples));
     }
-
+    
     OutColor = vec4(Color, 1);
 }
 

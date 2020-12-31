@@ -1,3 +1,4 @@
+
 #pragma once
 
 #define VALIDATION 1
@@ -22,13 +23,19 @@
     References:
 
     - https://www.3dgep.com/forward-plus/#G-Buffer_Pass
+    - https://ndotl.wordpress.com/2014/05/18/tiled-deferred-shading-tricks/
+    - https://github.com/TheRealMJP/DeferredTexturing/blob/master/BindlessDeferred/MSAAMask.hlsl
+    - https://leifnode.com/2015/05/tiled-deferred-shading/
+    - https://www.slideshare.net/DICEStudio/directx-11-rendering-in-battlefield-3
+    - https://forum.beyond3d.com/threads/modern-textureless-deferred-rendering-techniques.57611/
+    - https://software.intel.com/content/www/us/en/develop/articles/deferred-rendering-for-current-and-future-rendering-pipelines.html
     
     
  */
 
-//#define FORWARD_RENDERING
+#define FORWARD_RENDERING
 //#define DEFERRED_RENDERING
-#define TILED_FORWARD_RENDERING
+//#define TILED_FORWARD_RENDERING
 //#define TILED_DEFERRED_RENDERING
 
 struct directional_light
@@ -85,6 +92,7 @@ struct renderer_create_info
     u32 Width;
     u32 Height;
     VkFormat ColorFormat;
+    VkSampleCountFlagBits SampleCount;
 
     VkDescriptorSetLayout MaterialDescLayout;
     VkDescriptorSetLayout SceneDescLayout;
@@ -139,11 +147,11 @@ struct demo_state
 
     // NOTE: Render Target Entries
     VkFormat SwapChainFormat;
+    VkSampleCountFlagBits SampleCount;
     render_target_entry SwapChainEntry;
     render_target CopyToSwapTarget;
-    VkDescriptorSetLayout CopyToSwapDescLayout;
     VkDescriptorSet CopyToSwapDesc;
-    render_fullscreen_pass CopyToSwapPass;
+    vk_pipeline* CopyToSwapPipeline;
 
     render_scene Scene;
 

@@ -12,16 +12,42 @@ struct tiled_forward_globals
     u32 GridSizeY;
 };
 
-struct tiled_forward_state
+struct tiled_forward_non_msaa_targets
 {
-    vk_linear_arena RenderTargetArena;
-
     VkImage ColorImage;
     render_target_entry ColorEntry;
     VkImage DepthImage;
     render_target_entry DepthEntry;
+};
+
+struct tiled_forward_msaa_targets
+{    
+    // NOTE: MSAA Render Targets
+    VkImage MsaaColorImage;
+    render_target_entry MsaaColorEntry;
+    VkImage MsaaDepthImage;
+    render_target_entry MsaaDepthEntry;
+
+    // NOTE: Resolved Render Targets
+    VkImage ResolvedColorImage;
+    render_target_entry ResolvedColorEntry;
+    VkImage ResolvedDepthImage;
+    render_target_entry ResolvedDepthEntry;
+};
+
+struct tiled_forward_state
+{
+    vk_linear_arena RenderTargetArena;
+
+    b32 IsMsaaEnabled;
+    tiled_forward_msaa_targets MsaaTargets;
+    tiled_forward_non_msaa_targets NonMsaaTargets;
     render_target DepthPrePass;
     render_target ColorPass;
+    
+    // NOTE: Resolve Depth Data
+    VkDescriptorSet ResolveDepthDescriptor;
+    vk_pipeline* ResolveDepthPipeline;
 
     // NOTE: Global forward data
     VkBuffer TiledForwardGlobals;

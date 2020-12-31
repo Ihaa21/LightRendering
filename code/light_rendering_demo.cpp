@@ -139,12 +139,6 @@ DEMO_INIT(Init)
 
     // NOTE: Copy To Swap RT
     {
-        {
-            vk_descriptor_layout_builder Builder = VkDescriptorLayoutBegin(&DemoState->CopyToSwapDescLayout);
-            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-            VkDescriptorLayoutEnd(RenderState->Device, &Builder);
-        }
-
         render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, RenderState->WindowWidth,
                                                                  RenderState->WindowHeight);
         RenderTargetAddTarget(&Builder, &DemoState->SwapChainEntry, VkClearColorCreate(0, 0, 0, 1));
@@ -160,13 +154,15 @@ DEMO_INIT(Init)
         VkRenderPassSubPassEnd(&RpBuilder);
 
         DemoState->CopyToSwapTarget = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
+        DemoState->CopyToSwapPipeline = FullScreenCopyImageCreate(DemoState->CopyToSwapTarget.RenderPass, 0);
+
     }
 
     // NOTE: Init scene system
     {
         render_scene* Scene = &DemoState->Scene;
 
-        Scene->Camera = CameraFpsCreate(V3(0, 0, -5), V3(0, 0, 1), f32(RenderState->WindowWidth / RenderState->WindowHeight),
+        Scene->Camera = CameraFpsCreate(V3(0, 0, -3), V3(0, 0, 1), f32(RenderState->WindowWidth / RenderState->WindowHeight),
                                         0.001f, 1000.0f, 90.0f, 1.0f, 0.005f);
 
         Scene->SceneBuffer = VkBufferCreate(RenderState->Device, &RenderState->GpuArena,
@@ -225,13 +221,15 @@ DEMO_INIT(Init)
     }
 
     // NOTE: Create render data
+    DemoState->SampleCount = VK_SAMPLE_COUNT_8_BIT;
     DemoState->SwapChainFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
-    DemoState->CopyToSwapDesc = VkDescriptorSetAllocate(RenderState->Device, RenderState->DescriptorPool, DemoState->CopyToSwapDescLayout);
+    DemoState->CopyToSwapDesc = VkDescriptorSetAllocate(RenderState->Device, RenderState->DescriptorPool, RenderState->CopyImageDescLayout);
     {
         renderer_create_info CreateInfo = {};
-        CreateInfo.Width = RenderState->WindowWidth;
-        CreateInfo.Height = RenderState->WindowHeight;
+        CreateInfo.Width = 700; //RenderState->WindowWidth;
+        CreateInfo.Height = 410; //RenderState->WindowHeight;
         CreateInfo.ColorFormat = DemoState->SwapChainFormat;
+        CreateInfo.SampleCount = DemoState->SampleCount;
         CreateInfo.MaterialDescLayout = DemoState->Scene.MaterialDescLayout;
         CreateInfo.SceneDescLayout = DemoState->Scene.SceneDescLayout;
         CreateInfo.Scene = &DemoState->Scene;
@@ -248,10 +246,6 @@ DEMO_INIT(Init)
         TiledDeferredCreate(CreateInfo, &DemoState->CopyToSwapDesc, &DemoState->TiledDeferredState);
 #endif
     }
-
-    // NOTE: Copy To Swap FullScreen Pass
-    DemoState->CopyToSwapPass = FullScreenPassCreate("shader_copy_to_swap_frag.spv", "main", &DemoState->CopyToSwapTarget, 1,
-                                                     &DemoState->CopyToSwapDescLayout, 1, &DemoState->CopyToSwapDesc);
     
     // NOTE: Upload assets
     vk_commands Commands = RenderState->Commands;
@@ -320,22 +314,28 @@ DEMO_SWAPCHAIN_CHANGE(SwapChainChange)
     DemoState->SwapChainEntry.Height = RenderState->WindowHeight;
 
     DemoState->Scene.Camera.AspectRatio = f32(RenderState->WindowWidth / RenderState->WindowHeight);
+
+    renderer_create_info CreateInfo = {};
+    CreateInfo.Width = RenderState->WindowWidth;
+    CreateInfo.Height = RenderState->WindowHeight;
+    CreateInfo.ColorFormat = DemoState->SwapChainFormat;
+    CreateInfo.SampleCount = DemoState->SampleCount;
+    CreateInfo.MaterialDescLayout = DemoState->Scene.MaterialDescLayout;
+    CreateInfo.SceneDescLayout = DemoState->Scene.SceneDescLayout;
+    CreateInfo.Scene = &DemoState->Scene;
     
 #ifdef FORWARD_RENDERING
-    ForwardSwapChainChange(&DemoState->ForwardState, RenderState->WindowWidth, RenderState->WindowHeight,
-                           DemoState->SwapChainFormat, &DemoState->Scene, &DemoState->CopyToSwapDesc);
+    ForwardSwapChainChange(&DemoState->ForwardState, CreateInfo, &DemoState->CopyToSwapDesc);
 #endif
 #ifdef DEFERRED_RENDERING
     DeferredSwapChainChange(&DemoState->DeferredState, RenderState->WindowWidth, RenderState->WindowHeight,
                             DemoState->SwapChainFormat, &DemoState->Scene, &DemoState->CopyToSwapDesc);
 #endif
 #ifdef TILED_FORWARD_RENDERING
-    TiledForwardSwapChainChange(&DemoState->TiledForwardState, RenderState->WindowWidth, RenderState->WindowHeight,
-                                DemoState->SwapChainFormat, &DemoState->Scene, &DemoState->CopyToSwapDesc);
+    TiledForwardSwapChainChange(&DemoState->TiledForwardState, CreateInfo, &DemoState->CopyToSwapDesc);
 #endif
 #ifdef TILED_DEFERRED_RENDERING
-    TiledDeferredSwapChainChange(&DemoState->TiledDeferredState, RenderState->WindowWidth, RenderState->WindowHeight,
-                                 DemoState->SwapChainFormat, &DemoState->Scene, &DemoState->CopyToSwapDesc);
+    TiledDeferredSwapChainChange(&DemoState->TiledDeferredState, CreateInfo, &DemoState->CopyToSwapDesc);
 #endif
 }
 
@@ -415,7 +415,7 @@ DEMO_MAIN_LOOP(MainLoop)
         
         // NOTE: Push Point Lights
         {
-            point_light* PointLights = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->PointLightBuffer, point_light, Scene->MaxNumPointLights,
+            point_light* PointLights = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->PointLightBuffer, point_light, Scene->NumPointLights,
                                                                 BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
                                                                 BarrierMask(VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT));
             m4* Transforms = VkTransferPushWriteArray(&RenderState->TransferManager, Scene->PointLightTransforms, m4, Scene->NumPointLights,
@@ -427,7 +427,6 @@ DEMO_MAIN_LOOP(MainLoop)
                 point_light* CurrLight = Scene->PointLights + LightId;
                 PointLights[LightId] = *CurrLight;
                 // NOTE: Convert to view space
-                v4 Test = CameraGetV(&Scene->Camera) * V4(CurrLight->Pos, 1.0f);
                 PointLights[LightId].Pos = (CameraGetV(&Scene->Camera) * V4(CurrLight->Pos, 1.0f)).xyz;
                 Transforms[LightId] = CameraGetVP(&Scene->Camera) * M4Pos(CurrLight->Pos) * M4Scale(V3(CurrLight->MaxDistance));
             }
@@ -466,7 +465,10 @@ DEMO_MAIN_LOOP(MainLoop)
 #ifdef TILED_DEFERRED_RENDERING
     TiledDeferredRender(Commands, &DemoState->TiledDeferredState, &DemoState->Scene);
 #endif
-    FullScreenPassRender(Commands, &DemoState->CopyToSwapPass);
+
+    RenderTargetPassBegin(&DemoState->CopyToSwapTarget, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
+    FullScreenPassRender(Commands, DemoState->CopyToSwapPipeline, 1, &DemoState->CopyToSwapDesc);
+    RenderTargetPassEnd(Commands);
     
     VkCheckResult(vkEndCommandBuffer(Commands.Buffer));
                     

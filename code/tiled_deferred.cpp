@@ -8,54 +8,315 @@
   
 */
 
-inline void TiledDeferredSwapChainChange(tiled_deferred_state* State, u32 Width, u32 Height, VkFormat ColorFormat,
-                                         render_scene* Scene, VkDescriptorSet* OutputRtSet)
+inline void TiledDeferredSwapChainChange(tiled_deferred_state* State, renderer_create_info CreateInfo, VkDescriptorSet* OutputRtSet)
 {
     b32 ReCreate = State->RenderTargetArena.Used != 0;
     VkArenaClear(&State->RenderTargetArena);
+    State->IsMsaaEnabled = CreateInfo.SampleCount != VK_SAMPLE_COUNT_1_BIT;
     
     // NOTE: Render Target Data
     {
-        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferPositionImage, &State->GBufferPositionEntry);
-        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferNormalImage, &State->GBufferNormalEntry);
-        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->GBufferColorImage, &State->GBufferColorEntry);
-        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, VK_FORMAT_D32_SFLOAT,
-                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                  VK_IMAGE_ASPECT_DEPTH_BIT, &State->DepthImage, &State->DepthEntry);
-        RenderTargetEntryReCreate(&State->RenderTargetArena, Width, Height, ColorFormat,
-                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                  VK_IMAGE_ASPECT_COLOR_BIT, &State->OutColorImage, &State->OutColorEntry);
-
         if (ReCreate)
         {
-            RenderTargetUpdateEntries(&DemoState->TempArena, &State->GBufferPass);
-            RenderTargetUpdateEntries(&DemoState->TempArena, &State->LightingPass);
+            RenderTargetDestroy(&State->GBufferPass);
+            RenderTargetDestroy(&State->LightingPass);
         }
+
+        if (State->IsMsaaEnabled)
+        {
+            tiled_deferred_msaa_targets* Targets = &State->MsaaTargets;
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, CreateInfo.SampleCount, &Targets->GBufferPositionImage, &Targets->GBufferPositionEntry);
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, CreateInfo.SampleCount, &Targets->GBufferNormalImage, &Targets->GBufferNormalEntry);
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, CreateInfo.SampleCount, &Targets->GBufferColorImage, &Targets->GBufferColorEntry);
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_D32_SFLOAT,
+                                      VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
+                                      VK_IMAGE_ASPECT_DEPTH_BIT, CreateInfo.SampleCount, &Targets->MsaaDepthImage, &Targets->MsaaDepthEntry);
+            
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_R32_SFLOAT,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, &Targets->ResolvedDepthImage, &Targets->ResolvedDepthEntry);
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, CreateInfo.ColorFormat,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, &Targets->ResolvedColorImage, &Targets->ResolvedColorEntry);
+                                
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->ResolveDepthDescriptor, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->MsaaDepthEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, *OutputRtSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->ResolvedColorEntry.View, DemoState->LinearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
-        VkDescriptorImageWrite(&RenderState->DescriptorManager, *OutputRtSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               State->OutColorEntry.View, DemoState->LinearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            // NOTE: GBuffer
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->ResolvedDepthEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->GBufferPositionEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->GBufferNormalEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->GBufferColorEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->MsaaDepthEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        }
+        else
+        {
+            tiled_deferred_non_msaa_targets* Targets = &State->NonMsaaTargets;
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, &Targets->GBufferPositionImage, &Targets->GBufferPositionEntry);
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, &Targets->GBufferNormalImage, &Targets->GBufferNormalEntry);
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, &Targets->GBufferColorImage, &Targets->GBufferColorEntry);
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, VK_FORMAT_D32_SFLOAT,
+                                      VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_DEPTH_BIT, &Targets->DepthImage, &Targets->DepthEntry);
+            RenderTargetEntryReCreate(&State->RenderTargetArena, CreateInfo.Width, CreateInfo.Height, CreateInfo.ColorFormat,
+                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                      VK_IMAGE_ASPECT_COLOR_BIT, &Targets->OutColorImage, &Targets->OutColorEntry);
         
-        // NOTE: GBuffer
-        VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               State->GBufferPositionEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               State->GBufferNormalEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               State->GBufferColorEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                               State->DepthEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, *OutputRtSet, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->OutColorEntry.View, DemoState->LinearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        
+            // NOTE: GBuffer
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->GBufferPositionEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->GBufferNormalEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->GBufferColorEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkDescriptorImageWrite(&RenderState->DescriptorManager, State->TiledDeferredDescriptor, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   Targets->DepthEntry.View, DemoState->PointSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        }
     }
-    
+
+    // NOTE: GBuffer Pass
+    {
+        // NOTE: RT
+        if (State->IsMsaaEnabled)
+        {
+            tiled_deferred_msaa_targets* Targets = &State->MsaaTargets;
+            render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, CreateInfo.Width, CreateInfo.Height);
+            RenderTargetAddTarget(&Builder, &Targets->GBufferPositionEntry, VkClearColorCreate(0, 0, 0, 1));
+            RenderTargetAddTarget(&Builder, &Targets->GBufferNormalEntry, VkClearColorCreate(0, 0, 0, 1));
+            RenderTargetAddTarget(&Builder, &Targets->GBufferColorEntry, VkClearColorCreate(0, 0, 0, 1));
+            RenderTargetAddTarget(&Builder, &Targets->MsaaDepthEntry, VkClearDepthStencilCreate(0, 0));
+            RenderTargetAddTarget(&Builder, &Targets->ResolvedDepthEntry, VkClearDepthStencilCreate(0, 0));
+            
+            vk_render_pass_builder RpBuilder = VkRenderPassBuilderBegin(&DemoState->TempArena);
+            u32 GBufferPositionId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->GBufferPositionEntry.Format, CreateInfo.SampleCount,
+                                                              VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
+                                                              VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            u32 GBufferNormalId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->GBufferNormalEntry.Format, CreateInfo.SampleCount,
+                                                            VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
+                                                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            u32 GBufferColorId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->GBufferColorEntry.Format, CreateInfo.SampleCount,
+                                                           VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
+                                                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            u32 MsaaDepthId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->MsaaDepthEntry.Format, CreateInfo.SampleCount,
+                                                        VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
+                                                        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+            u32 ResolvedDepthId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->ResolvedDepthEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                            VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            // NOTE: GBuffer Pass
+            VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            VkRenderPassColorRefAdd(&RpBuilder, GBufferPositionId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassColorRefAdd(&RpBuilder, GBufferNormalId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassColorRefAdd(&RpBuilder, GBufferColorId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassDepthRefAdd(&RpBuilder, MsaaDepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            VkRenderPassSubPassEnd(&RpBuilder);
+
+            VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                   VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                                   VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
+
+            // NOTE: Depth Resolve
+            VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            VkRenderPassInputRefAdd(&RpBuilder, MsaaDepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+            VkRenderPassColorRefAdd(&RpBuilder, ResolvedDepthId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassSubPassEnd(&RpBuilder);
+
+            VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                   VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
+            
+            State->GBufferPass = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
+        }
+        else
+        {
+            tiled_deferred_non_msaa_targets* Targets = &State->NonMsaaTargets;
+            render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, CreateInfo.Width, CreateInfo.Height);
+            RenderTargetAddTarget(&Builder, &Targets->GBufferPositionEntry, VkClearColorCreate(0, 0, 0, 1));
+            RenderTargetAddTarget(&Builder, &Targets->GBufferNormalEntry, VkClearColorCreate(0, 0, 0, 1));
+            RenderTargetAddTarget(&Builder, &Targets->GBufferColorEntry, VkClearColorCreate(0, 0, 0, 1));
+            RenderTargetAddTarget(&Builder, &Targets->DepthEntry, VkClearDepthStencilCreate(0, 0));
+                            
+            vk_render_pass_builder RpBuilder = VkRenderPassBuilderBegin(&DemoState->TempArena);
+
+            u32 GBufferPositionId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->GBufferPositionEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                              VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            u32 GBufferNormalId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->GBufferNormalEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                            VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            u32 GBufferColorId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->GBufferColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                           VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            u32 DepthId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->DepthEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                    VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+
+            VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            VkRenderPassColorRefAdd(&RpBuilder, GBufferPositionId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassColorRefAdd(&RpBuilder, GBufferNormalId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassColorRefAdd(&RpBuilder, GBufferColorId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassDepthRefAdd(&RpBuilder, DepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            VkRenderPassSubPassEnd(&RpBuilder);
+
+            VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                   VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                                   VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
+
+            State->GBufferPass = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
+        }
+
+        // NOTE: GBuffer PSO
+        {
+            vk_pipeline_builder Builder = VkPipelineBuilderBegin(&DemoState->TempArena);
+
+            // NOTE: Shaders
+            VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_gbuffer_vert.spv", "main", VK_SHADER_STAGE_VERTEX_BIT);
+            VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_gbuffer_frag.spv", "main", VK_SHADER_STAGE_FRAGMENT_BIT);
+                
+            // NOTE: Specify input vertex data format
+            VkPipelineVertexBindingBegin(&Builder);
+            VkPipelineVertexAttributeAdd(&Builder, VK_FORMAT_R32G32B32_SFLOAT, sizeof(v3));
+            VkPipelineVertexAttributeAdd(&Builder, VK_FORMAT_R32G32B32_SFLOAT, sizeof(v3));
+            VkPipelineVertexAttributeAdd(&Builder, VK_FORMAT_R32G32_SFLOAT, sizeof(v2));
+            VkPipelineVertexBindingEnd(&Builder);
+
+            VkPipelineInputAssemblyAdd(&Builder, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_FALSE);
+            VkPipelineDepthStateAdd(&Builder, VK_TRUE, VK_TRUE, VK_COMPARE_OP_GREATER);
+            VkPipelineMsaaStateSet(&Builder, CreateInfo.SampleCount, VK_FALSE);
+
+            VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
+                                         VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
+            VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
+                                         VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
+            VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
+                                         VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
+
+            VkDescriptorSetLayout DescriptorLayouts[] =
+                {
+                    State->TiledDeferredDescLayout,
+                    CreateInfo.SceneDescLayout,
+                    CreateInfo.MaterialDescLayout,
+                };
+            
+            State->GBufferPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
+                                                          State->GBufferPass.RenderPass, 0, DescriptorLayouts, ArrayCount(DescriptorLayouts));
+        }
+                        
+        // NOTE: Resolve Depth PSO
+        if (State->IsMsaaEnabled)
+        {
+            State->ResolveDepthPipeline = FullScreenResolveDepthCreate(State->GBufferPass.RenderPass, 1);
+        }
+    }
+        
+    // NOTE: Lighting Pass
+    // IMPORTANT: We don't do this in a single render pass since we cannot do compute between graphics
+    {
+        // NOTE: RT
+        if (State->IsMsaaEnabled)
+        {
+            tiled_deferred_msaa_targets* Targets = &State->MsaaTargets;
+            render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, CreateInfo.Width, CreateInfo.Height);
+            RenderTargetAddTarget(&Builder, &Targets->ResolvedColorEntry, VkClearColorCreate(0, 0, 0, 1));
+                            
+            vk_render_pass_builder RpBuilder = VkRenderPassBuilderBegin(&DemoState->TempArena);
+            u32 ResolvedColorId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->ResolvedColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                            VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                   VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
+
+            VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            VkRenderPassColorRefAdd(&RpBuilder, ResolvedColorId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassSubPassEnd(&RpBuilder);
+
+            State->LightingPass = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
+        }
+        else
+        {
+            tiled_deferred_non_msaa_targets* Targets = &State->NonMsaaTargets;
+            render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, CreateInfo.Width, CreateInfo.Height);
+            RenderTargetAddTarget(&Builder, &Targets->OutColorEntry, VkClearColorCreate(0, 0, 0, 1));
+                            
+            vk_render_pass_builder RpBuilder = VkRenderPassBuilderBegin(&DemoState->TempArena);
+
+            u32 OutColorId = VkRenderPassAttachmentAdd(&RpBuilder, Targets->OutColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                       VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                   VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
+
+            VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            VkRenderPassColorRefAdd(&RpBuilder, OutColorId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkRenderPassSubPassEnd(&RpBuilder);
+
+            State->LightingPass = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
+        }
+
+        // NOTE: Lighting PSO
+        {
+            vk_pipeline_builder Builder = VkPipelineBuilderBegin(&DemoState->TempArena);
+
+            // NOTE: Shaders
+            VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_lighting_vert.spv", "main", VK_SHADER_STAGE_VERTEX_BIT);
+            if (State->IsMsaaEnabled)
+            {
+                VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_lighting_msaa_frag.spv", "main", VK_SHADER_STAGE_FRAGMENT_BIT);
+            }
+            else
+            {
+                VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_lighting_frag.spv", "main", VK_SHADER_STAGE_FRAGMENT_BIT);
+            }
+            
+            // NOTE: Specify input vertex data format
+            VkPipelineVertexBindingBegin(&Builder);
+            VkPipelineVertexAttributeAdd(&Builder, VK_FORMAT_R32G32B32_SFLOAT, 2*sizeof(v3) + sizeof(v2));
+            VkPipelineVertexBindingEnd(&Builder);
+
+            VkPipelineInputAssemblyAdd(&Builder, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_FALSE);
+            VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
+                                         VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
+
+            VkDescriptorSetLayout DescriptorLayouts[] =
+                {
+                    State->TiledDeferredDescLayout,
+                    CreateInfo.SceneDescLayout,
+                };
+            
+            State->LightingPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
+                                                           State->LightingPass.RenderPass, 0, DescriptorLayouts, ArrayCount(DescriptorLayouts));
+        }
+    }
+
     // NOTE: Tiled Data
     {
-        u32 NumTilesX = CeilU32(f32(Width) / f32(TILE_SIZE_IN_PIXELS));
-        u32 NumTilesY = CeilU32(f32(Height) / f32(TILE_SIZE_IN_PIXELS));
+        u32 NumTilesX = CeilU32(f32(CreateInfo.Width) / f32(TILE_SIZE_IN_PIXELS));
+        u32 NumTilesY = CeilU32(f32(CreateInfo.Height) / f32(TILE_SIZE_IN_PIXELS));
 
         // NOTE: Destroy old data
         if (ReCreate)
@@ -110,10 +371,10 @@ inline void TiledDeferredSwapChainChange(tiled_deferred_state* State, u32 Width,
                                                                      BarrierMask(VkAccessFlagBits(0), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
                                                                      BarrierMask(VK_ACCESS_UNIFORM_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT));
             *Data = {};
-            Data->InverseProjection = Inverse(CameraGetP(&Scene->Camera));
-            Data->ScreenSize = V2(RenderState->WindowWidth, RenderState->WindowHeight);
-            Data->GridSizeX = CeilU32(f32(RenderState->WindowWidth) / f32(TILE_SIZE_IN_PIXELS));
-            Data->GridSizeY = CeilU32(f32(RenderState->WindowHeight) / f32(TILE_SIZE_IN_PIXELS));
+            Data->InverseProjection = Inverse(CameraGetP(&CreateInfo.Scene->Camera));
+            Data->ScreenSize = V2(CreateInfo.Width, CreateInfo.Height);
+            Data->GridSizeX = CeilU32(f32(CreateInfo.Width) / f32(TILE_SIZE_IN_PIXELS));
+            Data->GridSizeY = CeilU32(f32(CreateInfo.Height) / f32(TILE_SIZE_IN_PIXELS));
         }
         VkTransferManagerFlush(&RenderState->TransferManager, RenderState->Device, RenderState->Commands.Buffer, &RenderState->BarrierManager);
 
@@ -124,8 +385,8 @@ inline void TiledDeferredSwapChainChange(tiled_deferred_state* State, u32 Width,
             };
         vkCmdBindDescriptorSets(Commands.Buffer, VK_PIPELINE_BIND_POINT_COMPUTE, State->GridFrustumPipeline->Layout, 0,
                                 ArrayCount(DescriptorSets), DescriptorSets, 0, 0);
-        u32 DispatchX = CeilU32(f32(RenderState->WindowWidth) / f32(8 * TILE_SIZE_IN_PIXELS));
-        u32 DispatchY = CeilU32(f32(RenderState->WindowHeight) / f32(8 * TILE_SIZE_IN_PIXELS));
+        u32 DispatchX = CeilU32(f32(CreateInfo.Width) / f32(8 * TILE_SIZE_IN_PIXELS));
+        u32 DispatchY = CeilU32(f32(CreateInfo.Height) / f32(8 * TILE_SIZE_IN_PIXELS));
         vkCmdDispatch(Commands.Buffer, DispatchX, DispatchY, 1);
     }
     VkCommandsSubmit(RenderState->GraphicsQueue, Commands);
@@ -165,6 +426,12 @@ inline void TiledDeferredCreate(renderer_create_info CreateInfo, VkDescriptorSet
             VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+
+            // NOTE: GBuffer Descriptors MSAA
+            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+            VkDescriptorLayoutAdd(&Builder, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
             
             VkDescriptorLayoutEnd(RenderState->Device, &Builder);
         }
@@ -188,148 +455,21 @@ inline void TiledDeferredCreate(renderer_create_info CreateInfo, VkDescriptorSet
                                                               "shader_tiled_deferred_grid_frustum.spv", "main", Layouts, ArrayCount(Layouts));
     }
 
-    TiledDeferredSwapChainChange(Result, CreateInfo.Width, CreateInfo.Height, CreateInfo.ColorFormat, CreateInfo.Scene, OutputRtSet);
+    // NOTE: Resolve Depth Descriptor
+    Result->ResolveDepthDescriptor = VkDescriptorSetAllocate(RenderState->Device, RenderState->DescriptorPool, RenderState->ResolveDepthDescLayout);
 
-    // NOTE: Create PSOs
-    // IMPORTANT: We don't do this in a single render pass since we cannot do compute between graphics
+    TiledDeferredSwapChainChange(Result, CreateInfo, OutputRtSet);
+
+    // NOTE: Light Cull
     {
-        // NOTE: GBuffer Pass
-        {
-            // NOTE: RT
+        VkDescriptorSetLayout Layouts[] =
             {
-                render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, CreateInfo.Width, CreateInfo.Height);
-                RenderTargetAddTarget(&Builder, &Result->GBufferPositionEntry, VkClearColorCreate(0, 0, 0, 1));
-                RenderTargetAddTarget(&Builder, &Result->GBufferNormalEntry, VkClearColorCreate(0, 0, 0, 1));
-                RenderTargetAddTarget(&Builder, &Result->GBufferColorEntry, VkClearColorCreate(0, 0, 0, 1));
-                RenderTargetAddTarget(&Builder, &Result->DepthEntry, VkClearDepthStencilCreate(0, 0));
-                            
-                vk_render_pass_builder RpBuilder = VkRenderPassBuilderBegin(&DemoState->TempArena);
-
-                u32 GBufferPositionId = VkRenderPassAttachmentAdd(&RpBuilder, Result->GBufferPositionEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                                  VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                u32 GBufferNormalId = VkRenderPassAttachmentAdd(&RpBuilder, Result->GBufferNormalEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                                VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                u32 GBufferColorId = VkRenderPassAttachmentAdd(&RpBuilder, Result->GBufferColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                               VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                u32 DepthId = VkRenderPassAttachmentAdd(&RpBuilder, Result->DepthEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                        VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-
-                VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
-                VkRenderPassColorRefAdd(&RpBuilder, GBufferPositionId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-                VkRenderPassColorRefAdd(&RpBuilder, GBufferNormalId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-                VkRenderPassColorRefAdd(&RpBuilder, GBufferColorId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-                VkRenderPassDepthRefAdd(&RpBuilder, DepthId, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-                VkRenderPassSubPassEnd(&RpBuilder);
-
-                VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                                       VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
-
-                Result->GBufferPass = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
-            }
-
-            {
-                vk_pipeline_builder Builder = VkPipelineBuilderBegin(&DemoState->TempArena);
-
-                // NOTE: Shaders
-                VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_gbuffer_vert.spv", "main", VK_SHADER_STAGE_VERTEX_BIT);
-                VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_gbuffer_frag.spv", "main", VK_SHADER_STAGE_FRAGMENT_BIT);
-                
-                // NOTE: Specify input vertex data format
-                VkPipelineVertexBindingBegin(&Builder);
-                VkPipelineVertexAttributeAdd(&Builder, VK_FORMAT_R32G32B32_SFLOAT, sizeof(v3));
-                VkPipelineVertexAttributeAdd(&Builder, VK_FORMAT_R32G32B32_SFLOAT, sizeof(v3));
-                VkPipelineVertexAttributeAdd(&Builder, VK_FORMAT_R32G32_SFLOAT, sizeof(v2));
-                VkPipelineVertexBindingEnd(&Builder);
-
-                VkPipelineInputAssemblyAdd(&Builder, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_FALSE);
-                VkPipelineDepthStateAdd(&Builder, VK_TRUE, VK_TRUE, VK_COMPARE_OP_GREATER);
-
-                VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
-                                             VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
-                VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
-                                             VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
-                VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
-                                             VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
-
-                VkDescriptorSetLayout DescriptorLayouts[] =
-                    {
-                        Result->TiledDeferredDescLayout,
-                        CreateInfo.SceneDescLayout,
-                        CreateInfo.MaterialDescLayout,
-                    };
+                Result->TiledDeferredDescLayout,
+                CreateInfo.SceneDescLayout,
+            };
             
-                Result->GBufferPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
-                                                               Result->GBufferPass.RenderPass, 0, DescriptorLayouts, ArrayCount(DescriptorLayouts));
-
-            }
-        }
-        
-        // NOTE: Light Cull
-        {
-            VkDescriptorSetLayout Layouts[] =
-                {
-                    Result->TiledDeferredDescLayout,
-                    CreateInfo.SceneDescLayout,
-                };
-            
-            Result->LightCullPipeline = VkPipelineComputeCreate(RenderState->Device, &RenderState->PipelineManager, &DemoState->TempArena,
-                                                                "shader_tiled_deferred_light_culling.spv", "main", Layouts, ArrayCount(Layouts));
-        }
-
-        // NOTE: Lighting Pass 
-        {
-            // NOTE: RT
-            {
-                render_target_builder Builder = RenderTargetBuilderBegin(&DemoState->Arena, &DemoState->TempArena, CreateInfo.Width, CreateInfo.Height);
-                RenderTargetAddTarget(&Builder, &Result->OutColorEntry, VkClearColorCreate(0, 0, 0, 1));
-                            
-                vk_render_pass_builder RpBuilder = VkRenderPassBuilderBegin(&DemoState->TempArena);
-
-                u32 OutColorId = VkRenderPassAttachmentAdd(&RpBuilder, Result->OutColorEntry.Format, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                           VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-                VkRenderPassDependency(&RpBuilder, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_DEPENDENCY_BY_REGION_BIT);
-
-                VkRenderPassSubPassBegin(&RpBuilder, VK_PIPELINE_BIND_POINT_GRAPHICS);
-                VkRenderPassColorRefAdd(&RpBuilder, OutColorId, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-                VkRenderPassSubPassEnd(&RpBuilder);
-
-                Result->LightingPass = RenderTargetBuilderEnd(&Builder, VkRenderPassBuilderEnd(&RpBuilder, RenderState->Device));
-            }
-
-            {
-                vk_pipeline_builder Builder = VkPipelineBuilderBegin(&DemoState->TempArena);
-
-                // NOTE: Shaders
-                VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_lighting_vert.spv", "main", VK_SHADER_STAGE_VERTEX_BIT);
-                VkPipelineShaderAdd(&Builder, "shader_tiled_deferred_lighting_frag.spv", "main", VK_SHADER_STAGE_FRAGMENT_BIT);
-                
-                // NOTE: Specify input vertex data format
-                VkPipelineVertexBindingBegin(&Builder);
-                VkPipelineVertexAttributeAdd(&Builder, VK_FORMAT_R32G32B32_SFLOAT, 2*sizeof(v3) + sizeof(v2));
-                VkPipelineVertexBindingEnd(&Builder);
-
-                VkPipelineInputAssemblyAdd(&Builder, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_FALSE);
-                VkPipelineColorAttachmentAdd(&Builder, VK_FALSE, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO,
-                                             VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
-
-                VkDescriptorSetLayout DescriptorLayouts[] =
-                    {
-                        Result->TiledDeferredDescLayout,
-                        CreateInfo.SceneDescLayout,
-                    };
-            
-                Result->LightingPipeline = VkPipelineBuilderEnd(&Builder, RenderState->Device, &RenderState->PipelineManager,
-                                                                Result->LightingPass.RenderPass, 0, DescriptorLayouts, ArrayCount(DescriptorLayouts));
-            }
-        }
+        Result->LightCullPipeline = VkPipelineComputeCreate(RenderState->Device, &RenderState->PipelineManager, &DemoState->TempArena,
+                                                            "shader_tiled_deferred_light_culling.spv", "main", Layouts, ArrayCount(Layouts));
     }
 }
 
@@ -357,8 +497,8 @@ inline void TiledDeferredRender(vk_commands Commands, tiled_deferred_state* Stat
         vkCmdFillBuffer(Commands.Buffer, State->LightIndexCounter_T, 0, sizeof(u32), 0);
     }
     
-    // NOTE: GBuffer Pass
     RenderTargetPassBegin(&State->GBufferPass, Commands, RenderTargetRenderPass_SetViewPort | RenderTargetRenderPass_SetScissor);
+    // NOTE: GBuffer Pass
     {
         vkCmdBindPipeline(Commands.Buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, State->GBufferPipeline->Handle);
         {
@@ -391,6 +531,14 @@ inline void TiledDeferredRender(vk_commands Commands, tiled_deferred_state* Stat
             vkCmdDrawIndexed(Commands.Buffer, CurrMesh->NumIndices, 1, 0, 0, InstanceId);
         }
     }
+    
+    if (State->IsMsaaEnabled)
+    {
+        RenderTargetNextSubPass(Commands);
+        // NOTE: Depth Resolve
+        FullScreenPassRender(Commands, State->ResolveDepthPipeline, 1, &State->ResolveDepthDescriptor);
+    }
+
     RenderTargetPassEnd(Commands);
     
     // NOTE: Light Culling Pass

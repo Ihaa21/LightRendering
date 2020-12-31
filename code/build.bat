@@ -30,8 +30,8 @@ call glslangValidator -DPOINT_LIGHT_FRAG=1 -S frag -e main -g -V -o %DataDir%\sh
 call glslangValidator -DDIRECTIONAL_LIGHT_VERT=1 -S vert -e main -g -V -o %DataDir%\shader_deferred_directional_light_vert.spv %CodeDir%\deferred_shaders.cpp
 call glslangValidator -DDIRECTIONAL_LIGHT_FRAG=1 -S frag -e main -g -V -o %DataDir%\shader_deferred_directional_light_frag.spv %CodeDir%\deferred_shaders.cpp
 
-call glslangValidator -DVERTEX_SHADER=1 -S vert -e main -g -V -o %DataDir%\shader_forward_vert.spv %CodeDir%\shader_forward.cpp
-call glslangValidator -DFRAGMENT_SHADER=1 -S frag -e main -g -V -o %DataDir%\shader_forward_frag.spv %CodeDir%\shader_forward.cpp
+call glslangValidator -DVERTEX_SHADER=1 -S vert -e main -g -V -o %DataDir%\shader_forward_vert.spv %CodeDir%\forward_shader.cpp
+call glslangValidator -DFRAGMENT_SHADER=1 -S frag -e main -g -V -o %DataDir%\shader_forward_frag.spv %CodeDir%\forward_shader.cpp
 
 call glslangValidator -DGRID_FRUSTUM=1 -S comp -e main -g -V -o %DataDir%\shader_tiled_forward_grid_frustum.spv %CodeDir%\tiled_forward_shaders.cpp
 call glslangValidator -DLIGHT_CULLING=1 -S comp -e main -g -V -o %DataDir%\shader_tiled_forward_light_culling.spv %CodeDir%\tiled_forward_shaders.cpp
@@ -44,8 +44,7 @@ call glslangValidator -DGBUFFER_VERT=1 -S vert -e main -g -V -o %DataDir%\shader
 call glslangValidator -DGBUFFER_FRAG=1 -S frag -e main -g -V -o %DataDir%\shader_tiled_deferred_gbuffer_frag.spv %CodeDir%\tiled_deferred_shaders.cpp
 call glslangValidator -DTILED_DEFERRED_LIGHTING_VERT=1 -S vert -e main -g -V -o %DataDir%\shader_tiled_deferred_lighting_vert.spv %CodeDir%\tiled_deferred_shaders.cpp
 call glslangValidator -DTILED_DEFERRED_LIGHTING_FRAG=1 -S frag -e main -g -V -o %DataDir%\shader_tiled_deferred_lighting_frag.spv %CodeDir%\tiled_deferred_shaders.cpp
-
-call glslangValidator -DFRAGMENT_SHADER=1 -S frag -e main -g -V -o %DataDir%\shader_copy_to_swap_frag.spv %CodeDir%\shader_copy_to_swap.cpp
+call glslangValidator -DTILED_DEFERRED_LIGHTING_MSAA_FRAG=1 -S frag -e main -g -V -o %DataDir%\shader_tiled_deferred_lighting_msaa_frag.spv %CodeDir%\tiled_deferred_shaders.cpp
 
 REM USING HLSL IN VK USING DXC
 REM set DxcDir=C:\Tools\DirectXShaderCompiler\build\Debug\bin
